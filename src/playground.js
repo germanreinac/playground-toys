@@ -20,7 +20,8 @@ import * as CANNON from '../vendor/cannon-es.js';
 const CARD = '#c8a06a';   // plain cardboard
 const COLOURS = ['#ff3fa9', '#3d7bff', '#ffd23f', '#ff5a4f', '#3ecf8e', '#ff9a3d', '#f6f3ff', '#24222e', CARD];
 const ROAD = '#3b3850', LINE = '#f6f3ff';
-const MAT_W = 30, MAT_D = 20;   // the carpet, in toy units (a block is 1)
+let MAT_W = 30, MAT_D = 20;     // the carpet, in toy units (a block is 1); it can be made bigger
+const SIZES = { small: [20, 20], medium: [30, 20], big: [40, 30], huge: [60, 40] };
 const KID = 5;                  // the kids are real children: giants next to the toys
 const KID_R = 1.2;              // how wide a kid is when bumping into things
 
@@ -28,9 +29,37 @@ const KEY = (id) => `playground.scene.${id}`;
 
 // ---------- The carpet ----------
 
-function carpetTexture(style) {
-  const u = 80;   // pixels per toy unit
-  const W = MAT_W, H = MAT_D;
+// The town, as a plan in carpet units (0,0 is the top-left corner): a ring road, a street every 10 units,
+// and something in every block. The picture, the random town and the driving cars all read this plan.
+function townPlan(W, H) {
+  const xs = [1.7], ys = [1.7];
+  for (let x = 10; x < W - 5; x += 10) xs.push(x);
+  for (let y = 10; y < H - 5; y += 10) ys.push(y);
+  xs.push(W - 1.7); ys.push(H - 1.7);
+  const plan = { W, H, xs, ys, rounds: [], zebras: [], plots: [], ponds: [], lots: [], pitches: [], fairs: [] };
+  for (let i = 1; i < xs.length - 1; i++) for (let j = 1; j < ys.length - 1; j++) {
+    const round = (i + j) % 2 === 1, x = xs[i], y = ys[j], o = round ? 2.6 : 2.1;
+    if (round) plan.rounds.push([x, y]);
+    plan.zebras.push([x - o, y, true], [x + o, y, true], [x, y - o, false], [x, y + o, false]);
+  }
+  const kinds = ['pond', 'plotsA', 'plotsB', 'plotsB', 'lot', 'fair', 'plotsA', 'plotsB', 'pond', 'plotsA', 'lot', 'plotsB', 'plotsB', 'fair', 'plotsA'];
+  const tints = ['#ffd0ea', '#ffd23f', '#ff9a3d'];
+  let n = 0, tint = 0;
+  for (let r = 0; r < ys.length - 1; r++) for (let c = 0; c < xs.length - 1; c++) {
+    const x = xs[c] + 1.3, y = ys[r] + 1.3, w = xs[c + 1] - xs[c] - 2.6, h = ys[r + 1] - ys[r] - 2.6, kind = kinds[n++ % kinds.length];
+    const row = (yy, hh, count) => { const pw = (w - 0.5 * (count - 1)) / count; for (let k = 0; k < count; k++) plan.plots.push({ x: x + k * (pw + 0.5), y: yy, w: pw, h: hh, col: tints[tint++ % 3] }); };
+    const half = (h - 0.6) / 2;
+    if (kind === 'pond') plan.ponds.push({ x: x + w / 2, y: y + h / 2, rx: w * 0.42, ry: h * 0.27 });
+    else if (kind === 'plotsA') { row(y, half, w > 6.5 ? 3 : 2); row(y + half + 0.6, half, 2); }
+    else if (kind === 'plotsB') { row(y, half, 2); row(y + half + 0.6, half, 1); }
+    else if (kind === 'lot') { plan.lots.push({ x, y, w, h: half }); plan.pitches.push({ x, y: y + half + 0.6, w, h: half }); }
+    else plan.fairs.push({ x, y, w, h });
+  }
+  return plan;
+}
+
+function carpetTexture(style, W, H) {
+  const u = Math.floor(Math.min(80, 3072 / W));   // pixels per toy unit (less on a huge carpet, to go easy on phones)
   const c = document.createElement('canvas');
   c.width = W * u; c.height = H * u;
   const g = c.getContext('2d');
@@ -40,43 +69,43 @@ function carpetTexture(style) {
   } else if (style === 'grid') {
     for (let y = 0; y < H / 2; y++) for (let x = 0; x < W / 2; x++) { g.fillStyle = (x + y) % 2 ? '#f6f3ff' : '#ffd0ea'; g.fillRect(x * 2, y * 2, 2, 2); }
   } else {
-    // A little town: grass, a ring road, three streets, a roundabout, a pond, a car park, a pitch, building plots.
+    const plan = townPlan(W, H), { xs, ys } = plan;
     g.fillStyle = '#58d6a0'; g.fillRect(0, 0, W, H);
     const road = (draw) => { g.strokeStyle = ROAD; g.lineWidth = 1.5; g.lineCap = 'round'; g.lineJoin = 'round'; g.setLineDash([]); g.beginPath(); draw(); g.stroke(); };
     const dashes = (draw) => { g.strokeStyle = LINE; g.lineWidth = 0.08; g.setLineDash([0.46, 0.4]); g.beginPath(); draw(); g.stroke(); g.setLineDash([]); };
     const ring = () => { g.roundRect(1.7, 1.7, W - 3.4, H - 3.4, 2.2); };
-    const streets = () => { g.moveTo(10, 1.7); g.lineTo(10, H - 1.7); g.moveTo(20, 1.7); g.lineTo(20, H - 1.7); g.moveTo(1.7, 10); g.lineTo(W - 1.7, 10); };
+    const streets = () => { for (const x of xs.slice(1, -1)) { g.moveTo(x, 1.7); g.lineTo(x, H - 1.7); } for (const y of ys.slice(1, -1)) { g.moveTo(1.7, y); g.lineTo(W - 1.7, y); } };
     road(ring); road(streets);
     dashes(ring); dashes(streets);
-    // The roundabout.
-    g.fillStyle = ROAD; g.beginPath(); g.arc(20, 10, 1.7, 0, 7); g.fill();
-    g.fillStyle = '#ff3fa9'; g.beginPath(); g.arc(20, 10, 0.78, 0, 7); g.fill();
-    g.strokeStyle = LINE; g.lineWidth = 0.08; g.beginPath(); g.arc(20, 10, 1.24, 0, 7); g.setLineDash([0.4, 0.34]); g.stroke(); g.setLineDash([]);
-    // Zebra crossings.
-    g.fillStyle = LINE;
-    for (const [x, y, vertical] of [[7.9, 10, true], [12.1, 10, true], [17.4, 10, true], [22.6, 10, true], [10, 7.9, false], [10, 12.1, false], [20, 7.4, false], [20, 12.6, false]]) {
-      for (let i = -3; i <= 3; i++) vertical ? g.fillRect(x - 0.3, y + i * 0.2 - 0.06, 0.6, 0.12) : g.fillRect(x + i * 0.2 - 0.06, y - 0.3, 0.12, 0.6);
+    for (const [x, y] of plan.rounds) {
+      g.fillStyle = ROAD; g.beginPath(); g.arc(x, y, 1.7, 0, 7); g.fill();
+      g.fillStyle = '#ff3fa9'; g.beginPath(); g.arc(x, y, 0.78, 0, 7); g.fill();
+      g.strokeStyle = LINE; g.lineWidth = 0.08; g.beginPath(); g.arc(x, y, 1.24, 0, 7); g.setLineDash([0.4, 0.34]); g.stroke(); g.setLineDash([]);
     }
-    // A pond.
-    g.fillStyle = '#3d7bff'; g.beginPath(); g.ellipse(5.6, 5.8, 2.3, 1.4, -0.2, 0, 7); g.fill();
-    g.fillStyle = '#8fb6ff'; g.beginPath(); g.ellipse(5.2, 5.5, 0.9, 0.4, -0.2, 0, 7); g.fill();
-    // A car park.
-    g.fillStyle = '#4a4763'; g.beginPath(); g.roundRect(11.6, 11.5, 6.8, 2.6, 0.26); g.fill();
-    g.strokeStyle = LINE; g.lineWidth = 0.06;
-    for (let i = 1; i < 7; i++) { g.beginPath(); g.moveTo(11.6 + i * 0.97, 11.6); g.lineTo(11.6 + i * 0.97, 12.6); g.moveTo(11.6 + i * 0.97, 13); g.lineTo(11.6 + i * 0.97, 14); g.stroke(); }
-    // A football pitch.
-    g.fillStyle = '#7be3b4'; g.beginPath(); g.roundRect(11.8, 14.8, 6.4, 2.6, 0.2); g.fill();
-    g.strokeStyle = LINE; g.lineWidth = 0.07; g.beginPath(); g.roundRect(12.05, 15.05, 5.9, 2.1, 0.1); g.moveTo(15, 15.05); g.lineTo(15, 17.15); g.moveTo(15.55, 16.1); g.arc(15, 16.1, 0.55, 0, 7); g.stroke();
-    // Plots to build on.
-    const pink = '#ffd0ea', yellow = '#ffd23f', orange = '#ff9a3d';
-    for (const [x, y, w, h, col] of [
-      [11.4, 3.2, 2.2, 2.2, yellow], [14.1, 3.2, 2.4, 2.2, orange], [17, 3.2, 1.8, 2.2, pink], [11.4, 6.2, 3, 2.3, pink], [15, 6.2, 3.6, 2.3, yellow],
-      [21.6, 3.3, 2.4, 2.4, orange], [24.4, 3.3, 2.2, 2.4, yellow], [21.8, 6.4, 4.6, 2, pink],
-      [3.2, 11.6, 2.4, 2.4, pink], [6, 11.6, 2.6, 2.4, yellow], [3.4, 14.6, 5, 2.2, orange],
-      [21.6, 11.6, 2.4, 2.4, yellow], [24.4, 11.6, 2.2, 2.4, pink], [21.8, 14.6, 4.6, 2.2, orange],
-    ]) { g.fillStyle = col; g.globalAlpha = 0.55; g.beginPath(); g.roundRect(x, y, w, h, 0.22); g.fill(); g.globalAlpha = 1; }
+    g.fillStyle = LINE;
+    for (const [x, y, vertical] of plan.zebras) for (let i = -3; i <= 3; i++) vertical ? g.fillRect(x - 0.3, y + i * 0.2 - 0.06, 0.6, 0.12) : g.fillRect(x + i * 0.2 - 0.06, y - 0.3, 0.12, 0.6);
+    for (const p of plan.ponds) {
+      g.fillStyle = '#3d7bff'; g.beginPath(); g.ellipse(p.x, p.y, p.rx, p.ry, -0.2, 0, 7); g.fill();
+      g.fillStyle = '#8fb6ff'; g.beginPath(); g.ellipse(p.x - p.rx * 0.2, p.y - p.ry * 0.25, p.rx * 0.4, p.ry * 0.28, -0.2, 0, 7); g.fill();
+    }
+    for (const p of plan.lots) {
+      g.fillStyle = '#4a4763'; g.beginPath(); g.roundRect(p.x, p.y, p.w, p.h, 0.26); g.fill();
+      g.strokeStyle = LINE; g.lineWidth = 0.06;
+      for (let bx = p.x + 0.97; bx < p.x + p.w - 0.3; bx += 0.97) { g.beginPath(); g.moveTo(bx, p.y + 0.1); g.lineTo(bx, p.y + 1); g.moveTo(bx, p.y + p.h - 1); g.lineTo(bx, p.y + p.h - 0.1); g.stroke(); }
+    }
+    for (const p of plan.pitches) {
+      g.fillStyle = '#7be3b4'; g.beginPath(); g.roundRect(p.x, p.y, p.w, p.h, 0.2); g.fill();
+      g.strokeStyle = LINE; g.lineWidth = 0.07; g.beginPath(); g.roundRect(p.x + 0.25, p.y + 0.25, p.w - 0.5, p.h - 0.5, 0.1);
+      g.moveTo(p.x + p.w / 2, p.y + 0.25); g.lineTo(p.x + p.w / 2, p.y + p.h - 0.25); g.moveTo(p.x + p.w / 2 + 0.55, p.y + p.h / 2); g.arc(p.x + p.w / 2, p.y + p.h / 2, 0.55, 0, 7); g.stroke();
+    }
+    // The fairground: a pale pad with a dotted edge, like sawdust.
+    for (const p of plan.fairs) {
+      g.fillStyle = '#ffe9b8'; g.beginPath(); g.roundRect(p.x, p.y, p.w, p.h, 0.6); g.fill();
+      g.strokeStyle = '#ff3fa9'; g.lineWidth = 0.12; g.lineCap = 'round'; g.setLineDash([0.01, 0.5]); g.beginPath(); g.roundRect(p.x + 0.3, p.y + 0.3, p.w - 0.6, p.h - 0.6, 0.4); g.stroke(); g.setLineDash([]);
+    }
+    for (const p of plan.plots) { g.fillStyle = p.col; g.globalAlpha = 0.55; g.beginPath(); g.roundRect(p.x, p.y, p.w, p.h, 0.22); g.fill(); g.globalAlpha = 1; }
     // A stitched border, like a real play mat.
-    g.strokeStyle = '#2f9f73'; g.lineWidth = 0.1; g.setLineDash([0.26, 0.2]); g.strokeRect(0.34, 0.34, W - 0.68, H - 0.68); g.setLineDash([]);
+    g.strokeStyle = '#2f9f73'; g.lineWidth = 0.1; g.lineCap = 'butt'; g.setLineDash([0.26, 0.2]); g.strokeRect(0.34, 0.34, W - 0.68, H - 0.68); g.setLineDash([]);
   }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -151,6 +180,19 @@ function cardBox(m, opts, w, h, d, cols, rows, door, thin) {
 }
 const tape = lambert('#efe2c4');
 
+// Put the coaster cars where they are along the track, nose first.
+function rideTo(ride) {
+  for (const { car, back } of ride.cars) {
+    const t = ((ride.t - back) % 1 + 1) % 1, q = ride.curve.getPointAt(t), d = ride.curve.getTangentAt(t);
+    car.position.copy(q);
+    car.rotation.set(-Math.asin(Math.max(-1, Math.min(1, d.y))), Math.atan2(d.x, d.z), 0, 'YXZ');
+  }
+}
+// The toy box is sorted into four drawers.
+const DRAWERS = { Blocks: ['block', 'brick', 'tube', 'cone', 'ball', 'arch', 'ramp', 'letter'], Town: ['box', 'house', 'car', 'truck', 'bus', 'tree', 'pine', 'person'], Cardboard: ['carton', 'cereal', 'shoebox', 'roll'], Fair: ['ferris', 'carousel', 'coaster', 'tent', 'balloons'] };
+// A dice you can seed, so the first town is always the same one.
+const dice = (seed) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
 const TOYS = {
   block: { label: 'Block', colour: '#ff3fa9', make: (m) => [part(new THREE.BoxGeometry(1, 1, 1), m, 0, 0.5, 0)] },
   brick: { label: 'Brick', colour: '#3d7bff', make: (m) => [part(new THREE.BoxGeometry(2, 0.6, 1), m, 0, 0.3, 0)] },
@@ -175,6 +217,57 @@ const TOYS = {
   cereal: { label: 'Cereal box', colour: CARD, make: (m, g, opts) => [cardBox(m, opts, 1.4, 2.2, 0.55, 2, 3, true, true)] },
   shoebox: { label: 'Shoe box', colour: CARD, make: (m, g, opts) => { const b = cardBox(m, opts, 2.2, 0.75, 1.2, 3, 1, false); return [b, part(new THREE.BoxGeometry(2.3, 0.2, 1.3), m.userData.twin, 0, 0.8, 0)]; } },
   roll: { label: 'Paper roll', colour: CARD, make: (m) => [part(new THREE.CylinderGeometry(0.34, 0.34, 1.7, 24), m, 0, 0.85, 0), part(new THREE.CylinderGeometry(0.27, 0.27, 0.02, 20), lambert('#5a4326'), 0, 1.7, 0)] },
+  // The fair. When things are set moving, the wheel turns, the carousel spins and the coaster cars run their track.
+  ferris: { label: 'Big wheel', colour: '#ff3fa9', make: (m) => {
+    const R = 2, hubY = 2.5, white = lambert('#f6f3ff'), out = [], spin = [];
+    for (const side of [-1, 1]) for (const lean of [-1, 1]) { const leg = part(new THREE.CylinderGeometry(0.07, 0.09, 2.78, 8), white, lean * 0.6, hubY / 2, side * 0.45); leg.rotation.z = lean * 0.447; out.push(leg); }
+    const wheel = new THREE.Group(); wheel.position.set(0, hubY, 0);
+    for (const side of [-1, 1]) {
+      wheel.add(part(new THREE.TorusGeometry(R, 0.06, 8, 48), m, 0, 0, side * 0.3));
+      for (let i = 0; i < 8; i++) { const a = i * Math.PI / 4, sp = part(new THREE.CylinderGeometry(0.025, 0.025, R, 6), white, Math.cos(a) * R / 2, Math.sin(a) * R / 2, side * 0.3); sp.rotation.z = a - Math.PI / 2; wheel.add(sp); }
+    }
+    for (let i = 0; i < 8; i++) {
+      const a = i * Math.PI / 4, hang = new THREE.Group(); hang.position.set(Math.cos(a) * R, Math.sin(a) * R, 0);
+      hang.add(part(new THREE.BoxGeometry(0.44, 0.36, 0.46), lambert(COLOURS[i % 6]), 0, -0.3, 0), part(new THREE.CylinderGeometry(0.03, 0.03, 0.62, 6), white).rotateX(Math.PI / 2));
+      wheel.add(hang); spin.push({ o: hang, a: 'z', v: -0.45 });   // the seats stay level
+    }
+    spin.push({ o: wheel, a: 'z', v: 0.45 });
+    m.userData.spin = spin;
+    return [...out, wheel, part(new THREE.CylinderGeometry(0.14, 0.14, 1.05, 12), white, 0, hubY, 0).rotateX(Math.PI / 2)];
+  } },
+  carousel: { label: 'Carousel', colour: '#ffd23f', make: (m) => {
+    const white = lambert('#f6f3ff'), turn = new THREE.Group();
+    turn.add(part(new THREE.CylinderGeometry(0.12, 0.12, 1.9, 10), white, 0, 1.1, 0), part(new THREE.ConeGeometry(1.75, 0.9, 12), m, 0, 2.4, 0), part(new THREE.CylinderGeometry(1.75, 1.75, 0.14, 28), white, 0, 1.9, 0), part(new THREE.CylinderGeometry(1.4, 1.4, 0.1, 28), lambert('#ff3fa9'), 0, 0.23, 0));
+    for (let i = 0; i < 6; i++) {
+      const a = i * Math.PI / 3, h = new THREE.Group(), up = 0.75 + (i % 2) * 0.22, col = lambert(COLOURS[(i + 1) % 6]);
+      h.position.set(Math.cos(a) * 1.05, 0, Math.sin(a) * 1.05); h.rotation.y = -a - Math.PI / 2;
+      h.add(part(new THREE.CylinderGeometry(0.03, 0.03, 1.6, 6), white, 0, 1.05, 0), part(new THREE.BoxGeometry(0.5, 0.24, 0.18), col, 0, up, 0), part(new THREE.BoxGeometry(0.14, 0.26, 0.15), col, 0.24, up + 0.2, 0));
+      turn.add(h);
+    }
+    m.userData.spin = [{ o: turn, a: 'y', v: 0.7 }];
+    return [part(new THREE.CylinderGeometry(1.5, 1.5, 0.18, 28), white, 0, 0.09, 0), turn];
+  } },
+  coaster: { label: 'Roller coaster', colour: '#3d7bff', make: (m) => {
+    const white = lambert('#f6f3ff'), out = [];
+    const curve = new THREE.CatmullRomCurve3([[-2.3, 0.5, -1], [-0.8, 2.5, -1.15], [0.8, 0.9, -1.15], [2.2, 1.7, -0.85], [2.65, 1.1, 0.3], [1.7, 0.55, 1.05], [0, 1.4, 1.15], [-1.7, 0.5, 1.05], [-2.7, 0.4, 0.15]].map((q) => new THREE.Vector3(...q)), true);
+    out.push(part(new THREE.TubeGeometry(curve, 160, 0.08, 6, true), m));
+    for (let i = 0; i < 20; i++) { const q = curve.getPointAt(i / 20); out.push(part(new THREE.CylinderGeometry(0.035, 0.035, q.y, 6), white, q.x, q.y / 2, q.z)); }
+    const cars = [0, 0.045, 0.09].map((back, i) => { const car = new THREE.Group(); car.add(part(new THREE.BoxGeometry(0.4, 0.26, 0.56), lambert(['#ffd23f', '#ff3fa9', '#3ecf8e'][i]), 0, 0.2, 0)); out.push(car); return { car, back }; });
+    m.userData.ride = { curve, cars, t: 0.12, length: curve.getLength() };
+    rideTo(m.userData.ride);
+    return out;
+  } },
+  tent: { label: 'Circus tent', colour: '#ff5a4f', make: (m) => [part(new THREE.CylinderGeometry(1.5, 1.5, 1.1, 20), lambert('#f6f3ff'), 0, 0.55, 0), part(new THREE.ConeGeometry(1.8, 1.4, 20), m, 0, 1.8, 0), part(new THREE.BoxGeometry(0.5, 0.75, 0.08), lambert('#24222e'), 0, 0.38, 1.47), part(new THREE.CylinderGeometry(0.025, 0.025, 0.6, 6), lambert('#f6f3ff'), 0, 2.75, 0), part(new THREE.BoxGeometry(0.4, 0.22, 0.03), lambert('#ffd23f'), 0.2, 2.92, 0)] },
+  balloons: { label: 'Balloons', colour: '#ff3fa9', make: (m) => {
+    const out = [part(new THREE.BoxGeometry(0.36, 0.2, 0.36), lambert('#24222e'), 0, 0.1, 0)];
+    [[m, -0.32, 1.75, 0.1], [lambert('#ffd23f'), 0.3, 1.95, -0.12], [lambert('#3d7bff'), 0.02, 2.25, 0.16]].forEach(([mat, x, y, z]) => {
+      const len = Math.hypot(x, y - 0.5, z), str = part(new THREE.CylinderGeometry(0.012, 0.012, len, 5), lambert('#f6f3ff'), x / 2, (y - 0.3) / 2 + 0.1, z / 2);
+      str.rotation.set(Math.atan2(z, y), 0, -Math.atan2(x, y));
+      const b = part(new THREE.SphereGeometry(0.34, 18, 14), mat, x, y, z); b.scale.y = 1.15;
+      out.push(str, b);
+    });
+    return out;
+  } },
   letter: { label: 'Letter', colour: '#ffd23f', make: (m, g, opts) => { m.map = letterTexture(opts.letter || 'A'); return [part(new THREE.BoxGeometry(0.9, 0.9, 0.9), m, 0, 0.45, 0)]; } },
 };
 
@@ -210,12 +303,18 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       <select data-a="kids" title="How many kids"><option value="3">A few kids</option><option value="6" selected>A class of kids</option><option value="10">Far too many kids</option></select>
       <button data-a="release" class="primary">Release the kids!</button>
       <i class="pg-div"></i>
-      <select data-a="carpet" title="The carpet"><option value="town">Town carpet</option><option value="grid">Checker carpet</option><option value="plain">Plain carpet</option></select>
+      <button data-a="go" title="Set the town moving: cars drive, people stroll, the fair turns">Go!</button>
       <button data-a="top">From above</button>
       <button data-a="walk" title="Walk around inside your town">Walk</button>
+      <button data-a="more" title="Carpet, random town, clear">More</button>
+      <button data-a="close" title="Close (Esc)">✕</button>
+    </div>
+    <div class="pg-more" hidden>
+      <select data-a="carpet" title="The carpet"><option value="town">Town carpet</option><option value="grid">Checker carpet</option><option value="plain">Plain carpet</option></select>
+      <select data-a="size" title="How big the carpet is"><option value="small">Small carpet</option><option value="medium">Medium carpet</option><option value="big">Big carpet</option><option value="huge">Huge carpet</option></select>
+      <button data-a="random" title="Build a whole random town">Random town</button>
       <button data-a="clear">Clear</button>
       <button data-a="shot">${addImage ? 'Put on board' : 'Save picture'}</button>
-      <button data-a="close" title="Close (Esc)">✕</button>
     </div>
     <div class="pg-sel" hidden>
       <span class="pg-colours"></span>
@@ -244,8 +343,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 500);
   // Where the camera starts: far enough back to see the whole carpet, further on a tall, narrow screen.
   const fit = () => Math.max(1, Math.min(3.4, 1.5 / camera.aspect));
-  const homeView = () => new THREE.Vector3(0, 21, 27).multiplyScalar(fit());
-  const topView = () => new THREE.Vector3(0, 40 * fit(), 0.01);
+  const big = () => Math.max(MAT_W / 30, MAT_D / 20);   // how much bigger than the medium carpet
+  const homeView = () => new THREE.Vector3(0, 21, 27).multiplyScalar(fit() * big());
+  const topView = () => new THREE.Vector3(0, 40 * fit() * big(), 0.01);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(0, 0, 0.5);
   controls.maxPolarAngle = Math.PI / 2 - 0.08;
@@ -275,22 +375,42 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
 
   const toys = [];
   let selected = null, drag = null, needs = true, raf = 0, nextLetter = 0, locked = false;
-  const state = { carpet: 'town' };
+  const state = { carpet: 'town', size: 'medium' };
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 48), new THREE.MeshBasicMaterial({ color: '#ff3fa9', transparent: true, opacity: 0.95, depthTest: false }));
   ring.rotation.x = -Math.PI / 2; ring.visible = false; ring.renderOrder = 5;
   scene.add(ring);
 
-  const setCarpet = (style) => { state.carpet = style; carpetMat.map?.dispose(); carpetMat.map = carpetTexture(style); carpetMat.needsUpdate = true; needs = true; };
+  const setCarpet = (style) => { state.carpet = style; carpetMat.map?.dispose(); carpetMat.map = carpetTexture(style, MAT_W, MAT_D); carpetMat.needsUpdate = true; needs = true; };
+  // A bigger or smaller carpet: the cloth, its picture, the light and how far the camera may go all follow.
+  const setSize = (key) => {
+    if (!SIZES[key]) key = 'medium';
+    state.size = key;
+    [MAT_W, MAT_D] = SIZES[key];
+    carpet.geometry.dispose();
+    carpet.geometry = new THREE.BoxGeometry(MAT_W, 0.06, MAT_D);
+    const k = big();
+    sun.position.set(11 * k, 22 * k, 9 * k);
+    Object.assign(sun.shadow.camera, { left: -24 * k, right: 24 * k, top: 20 * k, bottom: -20 * k, near: 1, far: 70 * k });
+    sun.shadow.camera.updateProjectionMatrix();
+    controls.maxDistance = 130 * k;
+    setCarpet(state.carpet);
+  };
 
   // --- saving
   const save = () => {
-    const data = { carpet: state.carpet, toys: toys.map((t) => ({ kind: t.userData.kind, x: +t.position.x.toFixed(3), y: +t.position.y.toFixed(3), z: +t.position.z.toFixed(3), r: +t.rotation.y.toFixed(3), s: +t.scale.x.toFixed(3), color: `#${t.userData.paint.color.getHexString()}`, ...(t.userData.letter ? { letter: t.userData.letter } : {}), ...(t.userData.drawn ? { drawn: 1 } : {}) })) };
+    const at = (t) => t.userData.mv?.home ?? { p: t.position, r: t.rotation.y };   // a toy that is driving about is saved where it started
+    const data = { carpet: state.carpet, size: state.size, toys: toys.map((t) => ({ kind: t.userData.kind, x: +at(t).p.x.toFixed(3), y: +at(t).p.y.toFixed(3), z: +at(t).p.z.toFixed(3), r: +at(t).r.toFixed(3), s: +t.scale.x.toFixed(3), color: `#${t.userData.paint.color.getHexString()}`, ...(t.userData.letter ? { letter: t.userData.letter } : {}), ...(t.userData.drawn ? { drawn: 1 } : {}) })) };
     try { localStorage.setItem(KEY(boardId), JSON.stringify(data)); } catch {}
   };
 
   // --- toys
   // Measured from the real shape (precise), so a turned roof does not make the toy seem wider than it is.
-  const boxOf = (t) => new THREE.Box3().setFromObject(t, true);
+  // Remembered until the toy moves, turns or changes size: measuring a wheel or a track is slow.
+  const boxOf = (t) => {
+    const key = `${t.position.x},${t.position.y},${t.position.z},${t.quaternion.x},${t.quaternion.y},${t.quaternion.z},${t.scale.x},${t.scale.y}`;
+    if (t.userData.boxKey !== key) { t.userData.boxKey = key; t.userData.box = new THREE.Box3().setFromObject(t, true); }
+    return t.userData.box.clone();
+  };
   // Where a toy rests at this spot: on the carpet, or on top of whatever is under it.
   const restingHeight = (toy, x, z) => {
     let y = 0;
@@ -354,12 +474,23 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
 
   // --- the toy box
   const box = el.querySelector('.pg-box');
-  for (const [kind, def] of Object.entries(TOYS)) {
-    const b = document.createElement('button');
+  // Four drawers; only the open one shows its toys.
+  const tabRow = box.appendChild(Object.assign(document.createElement('div'), { className: 'pg-tabs' })), toyRow = box.appendChild(Object.assign(document.createElement('div'), { className: 'pg-toys' }));
+  const openDrawer = (name) => { toyRow.scrollLeft = 0; for (const b of box.querySelectorAll('button')) { if (b.dataset.drawer) b.hidden = b.dataset.drawer !== name; if (b.dataset.tab) b.classList.toggle('on', b.dataset.tab === name); } };
+  for (const name of Object.keys(DRAWERS)) {
+    const tab = document.createElement('button');
+    tab.className = 'pg-tab'; tab.dataset.tab = name; tab.textContent = name;
+    tab.addEventListener('click', () => openDrawer(name));
+    tabRow.appendChild(tab);
+  }
+  for (const [name, kinds] of Object.entries(DRAWERS)) for (const kind of kinds) {
+    const def = TOYS[kind], b = document.createElement('button');
+    b.dataset.drawer = name;
     b.innerHTML = `<i style="--c:${def.colour}" data-shape="${kind}"></i><span>${def.label}</span>`;
     b.addEventListener('click', () => addToy(kind));
-    box.appendChild(b);
+    toyRow.appendChild(b);
   }
+  openDrawer('Town');
   // Surprise: a random toy, somewhere on the carpet.
   const surprise = document.createElement('button');
   surprise.className = 'pg-surprise';
@@ -372,7 +503,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     toy.position.y = restingHeight(toy, x, z);
     placeRing(); save();
   });
-  box.prepend(surprise);
+  tabRow.prepend(surprise);
   const swatches = el.querySelector('.pg-colours');
   for (const c of COLOURS) {
     const b = document.createElement('button');
@@ -447,6 +578,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     const toy = drag.toy;
     drag = null;
     controls.enabled = true;
+    if (toy.userData.mv) Object.assign(toy.userData.mv, { home: { p: toy.position.clone(), r: toy.rotation.y }, to: null, from: null, tx: null });
     plop(toy);
     save();
   };
@@ -497,6 +629,138 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
 
   // --- the buttons along the top
   el.querySelector('[data-a="carpet"]').addEventListener('change', (e) => { setCarpet(e.target.value); save(); });
+  const more = el.querySelector('.pg-more'), moreBtn = el.querySelector('[data-a="more"]');
+  const setMore = (on) => { more.hidden = !on; moreBtn.classList.toggle('on', on); };
+  moreBtn.addEventListener('click', () => setMore(more.hidden));
+  renderer.domElement.addEventListener('pointerdown', () => setMore(false), true);
+  el.querySelector('[data-a="size"]').addEventListener('change', (e) => {
+    stopMotion();
+    setSize(e.target.value);
+    camera.position.copy(homeView()); controls.target.set(0, 0, 0.5); controls.update();
+    save();
+  });
+
+  // ---------- Random town ----------
+  // Reads the town plan: buildings on the plots, trees by the pond, cars on the roads, the fair on its pad.
+  const buildTown = (rnd = Math.random) => {
+    const plan = townPlan(MAT_W, MAT_D), ox = -MAT_W / 2, oz = -MAT_D / 2;
+    const pick = (list) => list[Math.floor(rnd() * list.length)];
+    const bright = () => pick(COLOURS.slice(0, 6));
+    const put = (kind, x, z, o = {}) => (toys.length < 150 ? addToy(kind, { y: 0, r: 0, ...o, x: x + ox, z: z + oz }, { quiet: true }) : null);
+    for (const p of plan.plots) for (const f of p.w > 4.4 ? [0.27, 0.73] : [0.5]) {
+      const x = p.x + p.w * f, z = p.y + p.h / 2, roll = rnd();
+      if (roll < 0.1) continue;
+      if (roll < 0.32) put('house', x, z, { color: pick(['#f6f3ff', '#ffd23f', '#ff9a3d', '#3d7bff']) });
+      else if (roll < 0.52) put('box', x, z, { color: bright() });
+      else if (roll < 0.66) { put('carton', x, z, { drawn: true }); if (rnd() < 0.6) put('shoebox', x, z, { y: 1.62, drawn: true }); }
+      else if (roll < 0.74) put('cereal', x, z, { drawn: true });
+      else if (roll < 0.84) { put('block', x, z, { color: bright() }); put('block', x, z, { y: 1, color: bright() }); if (rnd() < 0.5) put('cone', x, z, { y: 2, color: bright() }); }
+      else if (roll < 0.9 && !plan.fairs.length) put(pick(['carousel', 'tent']), x, z);
+      else { put('tree', x - 0.5, z - 0.2); put('pine', x + 0.6, z + 0.3); }
+      if (rnd() < 0.3) put('person', x + 0.2, p.y + p.h + 0.1, { color: bright() });
+    }
+    for (const p of plan.ponds) for (let i = 0; i < 3; i++) { const a = rnd() * 6.3; put(pick(['tree', 'pine', 'tree']), p.x + Math.cos(a) * (p.rx + 0.5), p.y + Math.sin(a) * (p.ry + 0.6)); }
+    for (const p of plan.lots) for (let bx = p.x + 0.48; bx < p.x + p.w - 0.5; bx += 0.97) if (rnd() < 0.4) put('car', bx, p.y + 0.9, { r: Math.PI / 2, color: bright() });
+    for (const p of plan.pitches) { put('ball', p.x + p.w / 2, p.y + p.h / 2, { s: 0.5 }); put('person', p.x + p.w * 0.3, p.y + p.h * 0.4, { color: '#ff5a4f' }); put('person', p.x + p.w * 0.7, p.y + p.h * 0.6, { color: '#3d7bff' }); }
+    for (const p of plan.fairs) {
+      const sc = p.w < 6.4 ? 0.74 : 1;   // a smaller coaster on a smaller pad
+      put('ferris', p.x + 0.9, p.y + p.h * 0.45, { r: Math.PI / 2 });
+      put('carousel', p.x + p.w - 1.95, p.y + 1.95);
+      put('coaster', p.x + p.w - 0.35 - 2.75 * sc, p.y + p.h - 0.3 - 1.25 * sc, { s: sc });
+      put('balloons', p.x + 2.3, p.y + 0.8);
+    }
+    // Traffic: on the right-hand side of the road.
+    const { xs, ys } = plan;
+    for (const y of ys) for (let i = 0; i < xs.length - 1; i++) if (rnd() < 0.3) put(pick(['car', 'car', 'bus', 'truck']), (xs[i] + xs[i + 1]) / 2, y + 0.36, { color: bright() });
+    for (const x of xs) for (let j = 0; j < ys.length - 1; j++) if (rnd() < 0.22) put(pick(['car', 'car', 'truck']), x - 0.36, (ys[j] + ys[j + 1]) / 2, { r: -Math.PI / 2, color: bright() });
+    for (const [x, y] of plan.zebras) if (rnd() < 0.18) put('person', x, y, { color: bright() });
+  };
+  const randomBtn = el.querySelector('[data-a="random"]');
+  let randomTimer = 0;
+  const randomRest = () => { clearTimeout(randomTimer); randomBtn.textContent = 'Random town'; randomBtn.classList.remove('on'); };
+  randomBtn.addEventListener('click', () => {
+    // It replaces what you built, so it asks first, on the button itself.
+    if (toys.length && !randomBtn.classList.contains('on')) { randomBtn.textContent = 'Replace this one?'; randomBtn.classList.add('on'); randomTimer = setTimeout(randomRest, 3000); return; }
+    randomRest();
+    stopMotion();
+    for (const t of [...toys]) scene.remove(t);
+    toys.length = 0;
+    select(null);
+    if (state.carpet !== 'town') { setCarpet('town'); el.querySelector('[data-a="carpet"]').value = 'town'; }
+    buildTown();
+    setMore(false);
+    needs = true;
+    save();
+  });
+
+  // ---------- Go! ----------
+  // A first try at a town that moves: vehicles follow the roads, people stroll near where you put them,
+  // and the fair turns. Press Stop and everything goes back to where you placed it.
+  let moving = false, moveLast = 0, net = null;
+  const goBtn = el.querySelector('[data-a="go"]');
+  const roadNet = () => {
+    const { xs, ys } = townPlan(MAT_W, MAT_D), nodes = [];
+    for (let j = 0; j < ys.length; j++) for (let i = 0; i < xs.length; i++) {
+      const cornerX = i === 0 ? 0.64 : i === xs.length - 1 ? -0.64 : 0, cornerY = j === 0 ? 0.64 : j === ys.length - 1 ? -0.64 : 0, corner = cornerX && cornerY;   // the ring road cuts its corners
+      const next = [];
+      if (i > 0) next.push(j * xs.length + i - 1); if (i < xs.length - 1) next.push(j * xs.length + i + 1);
+      if (j > 0) next.push((j - 1) * xs.length + i); if (j < ys.length - 1) next.push((j + 1) * xs.length + i);
+      nodes.push({ x: xs[i] - MAT_W / 2 + (corner ? cornerX : 0), z: ys[j] - MAT_D / 2 + (corner ? cornerY : 0), next });
+    }
+    return nodes;
+  };
+  const DRIVES = { car: 3.4, truck: 2.6, bus: 2.4 };
+  const startMotion = () => {
+    if (moving || game) return;
+    if (state.carpet !== 'town') toast('Cars need the town carpet to find the roads. The rest still moves.');
+    moving = true; moveLast = performance.now(); net = state.carpet === 'town' ? roadNet() : null;
+    goBtn.textContent = 'Stop'; goBtn.classList.add('on');
+  };
+  const stopMotion = () => {
+    if (!moving) return;
+    moving = false;
+    for (const t of toys) if (t.userData.mv) { t.position.copy(t.userData.mv.home.p); t.rotation.set(0, t.userData.mv.home.r, 0); delete t.userData.mv; }
+    goBtn.textContent = 'Go!'; goBtn.classList.remove('on');
+    placeRing(); needs = true;
+  };
+  const motionStep = (now) => {
+    const dt = Math.min(0.05, (now - moveLast) / 1000), time = now / 1000;
+    moveLast = now;
+    for (const t of toys) {
+      const u = t.userData, kind = u.kind, m = u.paint.userData;
+      if (m.spin) for (const q of m.spin) q.o.rotation[q.a] += q.v * dt;
+      if (m.ride) { const r = m.ride, y = r.curve.getPointAt(r.t).y; r.t = (r.t + ((1.6 + (2.6 - y) * 1.5) * dt) / r.length) % 1; rideTo(r); }   // faster downhill
+      if (t === drag?.toy) continue;
+      const drives = DRIVES[kind] && net, strolls = kind === 'person';
+      if (!drives && !strolls) continue;
+      if (!u.mv) { if (t.position.y > 0.05) continue; u.mv = { home: { p: t.position.clone(), r: t.rotation.y }, to: null, from: null, tx: null, wait: Math.random() * 2 }; }
+      const mv = u.mv;
+      if (drives) {
+        if (mv.to === null) { let best = 1e9; net.forEach((nd, i) => { const d = Math.hypot(nd.x - t.position.x, nd.z - t.position.z); if (d < best) { best = d; mv.to = i; } }); mv.from = null; }
+        const a = mv.from === null ? null : net[mv.from], b = net[mv.to];
+        // Aim for the right-hand lane of the stretch being driven.
+        let tx = b.x, tz = b.z;
+        if (a) { const lx = b.x - a.x, lz = b.z - a.z, ll = Math.hypot(lx, lz) || 1; tx += (-lz / ll) * 0.36; tz += (lx / ll) * 0.36; }
+        const dx = tx - t.position.x, dz = tz - t.position.z, d = Math.hypot(dx, dz), step = DRIVES[kind] * dt;
+        if (d <= step + 0.02) {
+          const choices = b.next.filter((i) => i !== mv.from);
+          mv.from = mv.to; mv.to = (choices.length ? choices : b.next)[Math.floor(Math.random() * (choices.length || b.next.length))];
+        } else {
+          t.position.x += (dx / d) * step; t.position.z += (dz / d) * step;
+          let turn = Math.atan2(-dz, dx) - t.rotation.y;
+          turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+          t.rotation.y += turn * Math.min(1, dt * 7);
+        }
+      } else {
+        if (mv.tx === null) { if ((mv.wait -= dt) > 0) continue; const a = Math.random() * 6.3, r = 0.6 + Math.random() * 2.2; mv.tx = mv.home.p.x + Math.cos(a) * r; mv.tz = mv.home.p.z + Math.sin(a) * r; }
+        const dx = mv.tx - t.position.x, dz = mv.tz - t.position.z, d = Math.hypot(dx, dz), step = 0.9 * dt;
+        if (d <= step) { mv.tx = null; mv.wait = 0.5 + Math.random() * 2.5; t.position.y = mv.home.p.y; t.rotation.z = 0; }
+        else { t.position.x += (dx / d) * step; t.position.z += (dz / d) * step; t.position.y = mv.home.p.y + Math.abs(Math.sin(time * 9 + mv.home.p.x)) * 0.06; t.rotation.z = Math.sin(time * 9 + mv.home.p.x) * 0.08; }
+      }
+    }
+    if (selected) placeRing();
+  };
+  goBtn.addEventListener('click', () => (moving ? stopMotion() : startMotion()));
   const lockBtn = el.querySelector('[data-a="lock"]');
   const setLocked = (on) => {
     locked = on;
@@ -557,7 +821,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   };
   const enterWalk = () => {
     if (walk) return;
-    select(null);
+    select(null); setMore(false);
     const dir = camera.getWorldDirection(new THREE.Vector3());
     walk = { x: Math.max(-MAT_W / 2, Math.min(MAT_W / 2, controls.target.x)), z: Math.max(-MAT_D / 2, Math.min(MAT_D / 2, controls.target.z)), yaw: Math.atan2(-dir.x, -dir.z), pitch: 0, look: null, last: performance.now(), fresh: true, back: { p: camera.position.clone(), t: controls.target.clone(), fov: camera.fov } };
     controls.enabled = false;
@@ -648,6 +912,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   const releaseKids = () => {
     if (game) return;
     if (!toys.length) { toast('Build something first, then let them at it.'); return; }
+    stopMotion();
+    setMore(false);
     select(null);
     save();
     el.classList.add('pg-playing');
@@ -672,7 +938,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       const centre = b.getCenter(new THREE.Vector3()).sub(toy.position);   // from its foot to its middle, unturned
       const kind = toy.userData.kind;
       const shape = kind === 'ball' ? new CANNON.Sphere(half.y) : new CANNON.Box(new CANNON.Vec3(Math.max(0.05, half.x), Math.max(0.05, half.y), Math.max(0.05, half.z)));
-      const heavy = { house: 1.6, box: 1.1, truck: 1.3, bus: 1.3, tree: 0.6, pine: 0.6, person: 0.5, ball: 0.5, carton: 0.35, cereal: 0.35, shoebox: 0.35, roll: 0.35 }[kind] || 1;
+      const heavy = { house: 1.6, box: 1.1, truck: 1.3, bus: 1.3, tree: 0.6, pine: 0.6, person: 0.5, ball: 0.5, carton: 0.35, cereal: 0.35, shoebox: 0.35, roll: 0.35, ferris: 0.15, carousel: 0.4, coaster: 0.12, tent: 0.5, balloons: 0.2 }[kind] || 1;
       const body = new CANNON.Body({ mass: Math.max(0.4, half.x * half.y * half.z * 8 * 0.9 * heavy), shape, linearDamping: 0.08, angularDamping: 0.25 });
       const c = centre.clone().applyQuaternion(q);
       body.position.set(toy.position.x + c.x, toy.position.y + c.y, toy.position.z + c.z);
@@ -681,7 +947,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       return { toy, body, centre, start };
     });
     // The kids come in from every side of the carpet.
-    const count = Number(el.querySelector('[data-a="kids"]').value) || 6;
+    const count = Math.round((Number(el.querySelector('[data-a="kids"]').value) || 6) * Math.sqrt((MAT_W * MAT_D) / 600));   // more kids for a bigger carpet
     const kids = [];
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2 + Math.random() * 0.5;
@@ -845,21 +1111,17 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   });
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(KEY(boardId)) || 'null'); } catch {}
-  setCarpet(saved?.carpet || 'town');
+  state.carpet = saved?.carpet || 'town';
+  setSize(saved?.size || 'medium');
   el.querySelector('[data-a="carpet"]').value = state.carpet;
+  el.querySelector('[data-a="size"]').value = state.size;
   if (saved?.toys?.length) for (const t of saved.toys) addToy(t.kind, t, { quiet: true });
-  else {
-    // A first scene, so the mat isn't empty: a few things to push around.
-    for (const [kind, x, z, r, color] of [['house', -10.6, 2.8, 0, null], ['house', 7.8, -5.5, 0, '#ffd23f'], ['box', -2.5, -5.7, 0, null], ['box', 0.3, -5.7, 0, '#3d7bff'], ['tree', -6.8, -6.2, 0, null], ['pine', -11.6, -2.3, 0, null], ['tree', 3.9, 6.1, 0, null], ['car', -1, 0, 0, null], ['bus', 9, 0, Math.PI, null], ['truck', -5, 4.6, Math.PI / 2, null], ['person', -8.2, 3, 0, null], ['person', -7.4, 3.3, 0, '#ff3fa9'], ['block', 7.8, 2.8, 0.4, null], ['letter', 10.5, 2.8, -0.2, null], ['carton', 9.1, 5.7, 0, null], ['cereal', 1.6, -2.7, 0, null], ['shoebox', -9.1, 5.7, 0, null]]) {
-      addToy(kind, { x, y: 0, z, r, drawn: kind === 'carton' || kind === 'cereal', ...(color ? { color } : {}) }, { quiet: true });
-    }
-    // A shoe box on top of the packing box: a building, because there were no more buildings.
-    addToy('shoebox', { x: 9.1, y: 1.62, z: 5.7, r: 0, drawn: true }, { quiet: true });
-  }
+  else buildTown(dice(4));   // a first town, so the mat isn't empty (always the same one)
   size();
   camera.position.copy(homeView());
   const loop = (now) => {
     raf = requestAnimationFrame(loop);
+    if (moving) { motionStep(now || performance.now()); needs = true; }
     const moved = walk ? walkStep(now || performance.now()) : controls.update();
     if (moved || needs) { needs = false; renderer.render(scene, camera); }
   };

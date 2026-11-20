@@ -67,7 +67,7 @@ button { font: inherit; color: inherit; }
   .pg-box::-webkit-scrollbar { display: none; }
   #playground .pg-box button { flex: none; height: 38px; }
   .pg-sel { top: auto; bottom: calc(74px + env(safe-area-inset-bottom, 0px)); flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100vw - 16px); box-sizing: border-box; }
-  .pg-top [data-a="shot"] { display: none; }   /* a phone has its own screenshot */
+  #playground [data-a="shot"] { display: none; }   /* a phone has its own screenshot */
   #playground.pg-playing .pg-top, #playground.pg-playing .pg-box { display: none; }   /* nothing in the way of the show */
   .pg-clock { top: calc(14px + env(safe-area-inset-top, 0px)); }
   .pg-result { top: auto; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 22px 18px 18px; }
@@ -97,3 +97,29 @@ button { font: inherit; color: inherit; }
 /* In walk mode the clock sits in the corner and Boom! sits above the thumb sticks. */
 #playground.pg-walking .pg-clock { left: auto; right: 12px; top: calc(10px + env(safe-area-inset-top, 0px)); transform: none; min-width: 56px; padding: 2px 14px; font-size: 30px; }
 @media (pointer: coarse) { #playground.pg-walking .pg-shoo { bottom: calc(180px + env(safe-area-inset-bottom, 0px)); } }
+
+/* The "More" panel, and the drawers of the toy box. */
+.pg-more { position: absolute; right: 12px; top: 62px; z-index: 3; display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--panel-border); border-radius: var(--blob); background: var(--overlay); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); }
+.pg-more[hidden] { display: none; }
+#playground.pg-playing .pg-more, #playground.pg-walking .pg-more { display: none; }
+#playground .pg-box .pg-tab { padding: 0 11px; background: transparent; border-color: transparent; color: var(--text); }
+#playground .pg-box .pg-tab.on { background: var(--card); border-color: var(--accent); color: var(--text-strong); }
+#playground .pg-box button[hidden] { display: none; }
+.pg-box .pg-div { flex: none; width: 1px; height: 20px; align-self: center; border-radius: 0; background: var(--panel-border); box-shadow: none; margin: 0 2px; }
+.pg-box i[data-shape="ferris"], .pg-box i[data-shape="carousel"], .pg-box i[data-shape="balloons"] { border-radius: 50%; }
+.pg-box i[data-shape="tent"] { border-radius: 2px; clip-path: polygon(50% 0, 100% 100%, 0 100%); box-shadow: none; }
+.pg-box i[data-shape="coaster"] { width: 22px; height: 11px; border-radius: 50% 50% 3px 3px; }
+@media (max-width: 700px) { .pg-more { right: 8px; top: 104px; } }
+
+/* The toy box: drawer tabs, then the open drawer's toys. Side by side on a wide screen, stacked on a phone. */
+.pg-tabs, .pg-toys { display: flex; align-items: center; gap: 6px; }
+.pg-tabs { padding-right: 8px; border-right: 1px solid var(--panel-border); }
+.pg-toys { flex-wrap: wrap; }
+@media (max-width: 700px) {
+  .pg-box { flex-direction: column; align-items: stretch; overflow: visible; }
+  .pg-tabs { justify-content: space-between; padding-right: 0; border-right: 0; gap: 2px; }
+  #playground .pg-box .pg-tab, #playground .pg-box .pg-surprise { height: 32px; padding: 0 8px; }
+  .pg-toys { flex-wrap: nowrap; overflow-x: auto; scrollbar-width: none; }
+  .pg-toys::-webkit-scrollbar { display: none; }
+  .pg-sel { bottom: calc(118px + env(safe-area-inset-bottom, 0px)); }
+}
