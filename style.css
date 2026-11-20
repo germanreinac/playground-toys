@@ -79,3 +79,21 @@ button { font: inherit; color: inherit; }
 #playground .pg-shoo:active { transform: translateX(-50%) scale(0.94); }
 #playground .pg-shoo:disabled { opacity: 0.3; cursor: default; }
 @media (max-width: 700px) { #playground .pg-shoo { bottom: calc(28px + env(safe-area-inset-bottom, 0px)); } }
+
+/* Walk mode: thumb sticks over the picture, and nothing else in the way. */
+#playground.pg-walking .pg-top, #playground.pg-walking .pg-box, #playground.pg-walking .pg-sel { display: none; }
+.pg-walk { position: absolute; inset: 0; z-index: 1; touch-action: none; cursor: grab; }
+.pg-walk[hidden], .pg-walkbar[hidden] { display: none; }
+.pg-clock, .pg-result, #playground .pg-shoo, .pg-walkbar { z-index: 2; }
+.pg-walkbar { position: absolute; left: 12px; right: 12px; top: calc(10px + env(safe-area-inset-top, 0px)); display: flex; justify-content: space-between; gap: 8px; pointer-events: none; }
+.pg-walkbar button { pointer-events: auto; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3); }
+#playground.pg-playing .pg-walkbar [data-w="release"] { visibility: hidden; }
+.pg-stick { position: absolute; bottom: calc(86px + env(safe-area-inset-bottom, 0px)); width: 112px; height: 112px; margin: -56px; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.35); background: rgba(255, 255, 255, 0.08); opacity: 0.55; pointer-events: none; display: none; }
+.pg-stick[data-stick="L"] { left: 92px; }
+.pg-stick[data-stick="R"] { left: calc(100% - 92px); }
+.pg-stick.on { bottom: auto; opacity: 1; }
+.pg-stick b { position: absolute; left: 50%; top: 50%; width: 52px; height: 52px; margin: -26px; border-radius: 50%; background: var(--accent); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.35); }
+@media (pointer: coarse) { .pg-stick { display: block; } }
+/* In walk mode the clock sits in the corner and Boom! sits above the thumb sticks. */
+#playground.pg-walking .pg-clock { left: auto; right: 12px; top: calc(10px + env(safe-area-inset-top, 0px)); transform: none; min-width: 56px; padding: 2px 14px; font-size: 30px; }
+@media (pointer: coarse) { #playground.pg-walking .pg-shoo { bottom: calc(180px + env(safe-area-inset-bottom, 0px)); } }

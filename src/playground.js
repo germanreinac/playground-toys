@@ -212,6 +212,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       <i class="pg-div"></i>
       <select data-a="carpet" title="The carpet"><option value="town">Town carpet</option><option value="grid">Checker carpet</option><option value="plain">Plain carpet</option></select>
       <button data-a="top">From above</button>
+      <button data-a="walk" title="Walk around inside your town">Walk</button>
       <button data-a="clear">Clear</button>
       <button data-a="shot">${addImage ? 'Put on board' : 'Save picture'}</button>
       <button data-a="close" title="Close (Esc)">✕</button>
@@ -225,6 +226,10 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     <div class="pg-box"></div>
     <div class="pg-clock" hidden></div>
     <button class="pg-shoo" title="Blast the kids off the carpet. The toys feel nothing. Once per test. (Space)" hidden>Boom!</button>
+    <div class="pg-walk" hidden>
+      <i class="pg-stick" data-stick="L"><b></b></i><i class="pg-stick" data-stick="R"><b></b></i>
+    </div>
+    <div class="pg-walkbar" hidden><button data-w="exit" title="Back to building (Esc)">Back to building</button><button data-w="release" class="primary">Release the kids!</button></div>
     <div class="pg-result" hidden></div>`;
   document.body.appendChild(el);
 
@@ -452,6 +457,12 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   const onKey = (e) => {
     if (e.target.closest?.('select, input')) return;
     e.stopPropagation();
+    if (walk) {
+      if (e.key === 'Escape') exitWalk();
+      else if (e.code === 'Space' && game) { e.preventDefault(); shoo(); }
+      else { walkKeys.add(e.code); if (e.key.startsWith('Arrow')) e.preventDefault(); }
+      return;
+    }
     const mod = e.metaKey || e.ctrlKey;
     if (e.code === 'Space' && game) { e.preventDefault(); shoo(); return; }
     if (e.key === 'Escape') { if (game) return; if (selected) select(null); else if (!standalone) close(); return; }
@@ -480,6 +491,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     }
   };
   window.addEventListener('keydown', onKey, true);
+  const onKeyUp = (e) => walkKeys.delete(e.code);
+  window.addEventListener('keyup', onKeyUp, true);
+  window.addEventListener('blur', () => walkKeys.clear());
 
   // --- the buttons along the top
   el.querySelector('[data-a="carpet"]').addEventListener('change', (e) => { setCarpet(e.target.value); save(); });
@@ -527,6 +541,96 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       setTimeout(() => URL.revokeObjectURL(a.href), 4000);
     }, 'image/png');
   });
+  // ---------- Walk mode ----------
+  // Down in the street, like a video game: the left thumb walks, the right thumb looks around.
+  // With a keyboard: W A S D (or the arrows) to walk, drag the mouse to look.
+  let walk = null;
+  const walkKeys = new Set();
+  const walkPad = el.querySelector('.pg-walk'), walkBar = el.querySelector('.pg-walkbar');
+  const EYE = 1.05, STICK = 46;   // eye height of a peg person; how far a thumb stick travels, in pixels
+  const sticks = {};
+  for (const side of ['L', 'R']) sticks[side] = { el: walkPad.querySelector(`[data-stick="${side}"]`), id: null, ox: 0, oy: 0, x: 0, y: 0 };
+  const drawStick = (st) => {
+    st.el.classList.toggle('on', st.id !== null);
+    st.el.style.left = st.id !== null ? `${st.ox}px` : ''; st.el.style.top = st.id !== null ? `${st.oy}px` : '';
+    st.el.firstChild.style.transform = `translate(${st.x * STICK}px, ${st.y * STICK}px)`;
+  };
+  const enterWalk = () => {
+    if (walk) return;
+    select(null);
+    const dir = camera.getWorldDirection(new THREE.Vector3());
+    walk = { x: Math.max(-MAT_W / 2, Math.min(MAT_W / 2, controls.target.x)), z: Math.max(-MAT_D / 2, Math.min(MAT_D / 2, controls.target.z)), yaw: Math.atan2(-dir.x, -dir.z), pitch: 0, look: null, last: performance.now(), fresh: true, back: { p: camera.position.clone(), t: controls.target.clone(), fov: camera.fov } };
+    controls.enabled = false;
+    camera.fov = 62; camera.updateProjectionMatrix();
+    el.classList.add('pg-walking');
+    walkPad.hidden = false; walkBar.hidden = false;
+    toast(matchMedia('(pointer: coarse)').matches ? 'Left thumb walks, right thumb looks around.' : 'W A S D to walk, drag to look around. Esc to go back.');
+  };
+  const exitWalk = () => {
+    if (!walk) return;
+    const b = walk.back;
+    walk = null; walkKeys.clear();
+    for (const st of Object.values(sticks)) { st.id = null; st.x = st.y = 0; drawStick(st); }
+    camera.fov = b.fov; camera.updateProjectionMatrix();
+    camera.position.copy(b.p); controls.target.copy(b.t);
+    controls.enabled = true; controls.update();
+    el.classList.remove('pg-walking');
+    walkPad.hidden = true; walkBar.hidden = true;
+    needs = true;
+  };
+  const walkStep = (now) => {
+    const dt = Math.min(0.05, (now - walk.last) / 1000);
+    walk.last = now;
+    const k = (...codes) => (codes.some((c) => walkKeys.has(c)) ? 1 : 0);
+    let mx = sticks.L.x + k('KeyD') - k('KeyA'), my = sticks.L.y + k('KeyS', 'ArrowDown') - k('KeyW', 'ArrowUp');
+    const lx = sticks.R.x + k('ArrowRight') - k('ArrowLeft'), ly = sticks.R.y;
+    const m = Math.hypot(mx, my);
+    if (m > 1) { mx /= m; my /= m; }
+    if (!mx && !my && !lx && !ly && !walk.fresh) return false;
+    walk.fresh = false;
+    walk.yaw -= lx * 2.3 * dt;
+    walk.pitch = Math.max(-1.2, Math.min(1.2, walk.pitch - ly * 1.5 * dt));
+    const sp = (k('ShiftLeft', 'ShiftRight') ? 10 : 5) * dt, sin = Math.sin(walk.yaw), cos = Math.cos(walk.yaw);
+    walk.x = Math.max(-MAT_W / 2 - 12, Math.min(MAT_W / 2 + 12, walk.x + (sin * my + cos * mx) * sp));
+    walk.z = Math.max(-MAT_D / 2 - 12, Math.min(MAT_D / 2 + 12, walk.z + (cos * my - sin * mx) * sp));
+    camera.position.set(walk.x, EYE, walk.z);
+    camera.rotation.set(walk.pitch, walk.yaw, 0, 'YXZ');
+    return true;
+  };
+  walkPad.addEventListener('pointerdown', (e) => {
+    walkPad.setPointerCapture(e.pointerId);
+    if (e.pointerType !== 'touch') { walk.look = { id: e.pointerId, x: e.clientX, y: e.clientY }; return; }
+    const st = sticks[e.clientX < walkPad.clientWidth / 2 ? 'L' : 'R'];
+    if (st.id !== null) return;
+    Object.assign(st, { id: e.pointerId, ox: e.clientX, oy: e.clientY, x: 0, y: 0 });
+    drawStick(st);
+  });
+  walkPad.addEventListener('pointermove', (e) => {
+    if (!walk) return;
+    if (walk.look?.id === e.pointerId) {
+      walk.yaw -= (e.clientX - walk.look.x) * 0.005; walk.pitch = Math.max(-1.2, Math.min(1.2, walk.pitch - (e.clientY - walk.look.y) * 0.005));
+      walk.look.x = e.clientX; walk.look.y = e.clientY; walk.fresh = true;
+      return;
+    }
+    const st = Object.values(sticks).find((q) => q.id === e.pointerId);
+    if (!st) return;
+    let x = (e.clientX - st.ox) / STICK, y = (e.clientY - st.oy) / STICK;
+    const d = Math.hypot(x, y);
+    if (d > 1) { x /= d; y /= d; }
+    st.x = x; st.y = y;
+    drawStick(st);
+  });
+  const walkUp = (e) => {
+    if (walk?.look?.id === e.pointerId) walk.look = null;
+    const st = Object.values(sticks).find((q) => q.id === e.pointerId);
+    if (st) { st.id = null; st.x = st.y = 0; drawStick(st); }
+  };
+  walkPad.addEventListener('pointerup', walkUp);
+  walkPad.addEventListener('pointercancel', walkUp);
+  el.querySelector('[data-a="walk"]').addEventListener('click', enterWalk);
+  walkBar.querySelector('[data-w="exit"]').addEventListener('click', exitWalk);
+  walkBar.querySelector('[data-w="release"]').addEventListener('click', () => releaseKids());
+
   // ---------- Kid test ----------
   let game = null, shoo = () => {};
   const KID_COLOURS = ['#ff3fa9', '#3d7bff', '#ffd23f', '#ff5a4f', '#3ecf8e', '#ff9a3d'];
@@ -711,6 +815,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     save();
     cancelAnimationFrame(raf);
     window.removeEventListener('keydown', onKey, true);
+    window.removeEventListener('keyup', onKeyUp, true);
     window.removeEventListener('resize', size);
     controls.dispose();
     scene.traverse((o) => { o.geometry?.dispose?.(); });
@@ -753,9 +858,10 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   }
   size();
   camera.position.copy(homeView());
-  const loop = () => {
+  const loop = (now) => {
     raf = requestAnimationFrame(loop);
-    if (controls.update() || needs) { needs = false; renderer.render(scene, camera); }
+    const moved = walk ? walkStep(now || performance.now()) : controls.update();
+    if (moved || needs) { needs = false; renderer.render(scene, camera); }
   };
   loop();
   open = { close };
