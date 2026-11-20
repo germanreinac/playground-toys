@@ -17,7 +17,8 @@ import { OrbitControls } from '../vendor/three/OrbitControls.js';
 import * as CANNON from '../vendor/cannon-es.js';
 
 // Primary colours, leaning on Melti's own pink and blue.
-const COLOURS = ['#ff3fa9', '#3d7bff', '#ffd23f', '#ff5a4f', '#3ecf8e', '#ff9a3d', '#f6f3ff', '#24222e'];
+const CARD = '#c8a06a';   // plain cardboard
+const COLOURS = ['#ff3fa9', '#3d7bff', '#ffd23f', '#ff5a4f', '#3ecf8e', '#ff9a3d', '#f6f3ff', '#24222e', CARD];
 const ROAD = '#3b3850', LINE = '#f6f3ff';
 const MAT_W = 30, MAT_D = 20;   // the carpet, in toy units (a block is 1)
 const KID = 5;                  // the kids are real children: giants next to the toys
@@ -117,6 +118,39 @@ function letterTexture(ch) {
   const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
 }
 
+// Cardboard: faint corrugation and worn edges and, if you draw on it, wobbly marker windows and a door.
+function cardTexture(cols, rows, door, drawn) {
+  const c = document.createElement('canvas'); c.width = c.height = 256;
+  const g = c.getContext('2d');
+  g.fillStyle = '#fff'; g.fillRect(0, 0, 256, 256);
+  g.strokeStyle = 'rgba(70,45,10,0.07)'; g.lineWidth = 2;
+  for (let x = 6; x < 256; x += 9) { g.beginPath(); g.moveTo(x, 0); g.lineTo(x, 256); g.stroke(); }
+  g.strokeStyle = 'rgba(70,45,10,0.22)'; g.lineWidth = 10; g.strokeRect(0, 0, 256, 256);
+  if (drawn) {
+    let seed = cols * 7 + rows * 13 + 5;
+    const wob = () => { seed = (seed * 16807) % 2147483647; return (seed / 2147483647 - 0.5) * 6; };
+    const pen = (pts) => { g.beginPath(); pts.forEach(([x, y], i) => (i ? g.lineTo(x + wob(), y + wob()) : g.moveTo(x + wob(), y + wob()))); g.stroke(); };
+    g.strokeStyle = 'rgba(35,30,60,0.9)'; g.lineWidth = 5.5; g.lineCap = 'round'; g.lineJoin = 'round';
+    const top = 26, bottom = door ? 150 : 230, cw = 204 / cols, ch = (bottom - top) / rows;
+    for (let r = 0; r < rows; r++) for (let q = 0; q < cols; q++) {
+      const x = 26 + q * cw + cw * 0.16, y = top + r * ch + ch * 0.14, w = cw * 0.68, h = ch * 0.72;
+      pen([[x, y], [x + w, y], [x + w, y + h], [x, y + h], [x, y], [x + w * 0.3, y]]);   // a box, the pen overshooting a little
+      pen([[x + w / 2, y], [x + w / 2, y + h]]); pen([[x, y + h / 2], [x + w, y + h / 2]]);
+    }
+    if (door) { pen([[104, 250], [104, 172], [152, 172], [152, 250]]); g.beginPath(); g.arc(142, 214, 3, 0, 7); g.stroke(); }
+  }
+  const t = new THREE.CanvasTexture(c); t.colorSpace = THREE.SRGBColorSpace; return t;
+}
+// A cardboard box: marker drawings go on the walls (or just front and back, for a thin box), never on the top.
+function cardBox(m, opts, w, h, d, cols, rows, door, thin) {
+  m.userData.card = [cols, rows, door];
+  m.map = cardTexture(cols, rows, door, opts.drawn);
+  const plain = lambert(m.color); plain.map = cardTexture(cols, rows, door, false);
+  m.userData.twin = plain;   // takes the same colour
+  return part(new THREE.BoxGeometry(w, h, d), thin ? [plain, plain, plain, plain, m, m] : [m, m, plain, plain, m, m], 0, h / 2, 0);
+}
+const tape = lambert('#efe2c4');
+
 const TOYS = {
   block: { label: 'Block', colour: '#ff3fa9', make: (m) => [part(new THREE.BoxGeometry(1, 1, 1), m, 0, 0.5, 0)] },
   brick: { label: 'Brick', colour: '#3d7bff', make: (m) => [part(new THREE.BoxGeometry(2, 0.6, 1), m, 0, 0.3, 0)] },
@@ -137,6 +171,10 @@ const TOYS = {
   pine: { label: 'Pine', colour: '#3ecf8e', make: (m) => [part(new THREE.CylinderGeometry(0.1, 0.14, 0.5, 12), trunk, 0, 0.25, 0), part(new THREE.ConeGeometry(0.6, 1.5, 20), m, 0, 1.2, 0)] },
   house: { label: 'House', colour: '#f6f3ff', make: (m) => { const r = part(new THREE.ConeGeometry(1.15, 0.8, 4), roof, 0, 1.5, 0); r.rotation.y = Math.PI / 4; return [part(new THREE.BoxGeometry(1.5, 1.1, 1.5), m, 0, 0.55, 0), r, part(new THREE.BoxGeometry(0.32, 0.56, 0.06), lambert('#24222e'), 0, 0.28, 0.76)]; } },
   person: { label: 'Person', colour: '#3d7bff', make: (m) => [part(new THREE.CylinderGeometry(0.2, 0.3, 0.8, 20), m, 0, 0.4, 0), part(new THREE.SphereGeometry(0.24, 20, 14), skin, 0, 1.02, 0)] },
+  carton: { label: 'Packing box', colour: CARD, make: (m, g, opts) => [cardBox(m, opts, 2, 1.6, 1.6, 2, 1, true), part(new THREE.BoxGeometry(2.02, 0.02, 0.24), tape, 0, 1.6, 0)] },
+  cereal: { label: 'Cereal box', colour: CARD, make: (m, g, opts) => [cardBox(m, opts, 1.4, 2.2, 0.55, 2, 3, true, true)] },
+  shoebox: { label: 'Shoe box', colour: CARD, make: (m, g, opts) => { const b = cardBox(m, opts, 2.2, 0.75, 1.2, 3, 1, false); return [b, part(new THREE.BoxGeometry(2.3, 0.2, 1.3), m.userData.twin, 0, 0.8, 0)]; } },
+  roll: { label: 'Paper roll', colour: CARD, make: (m) => [part(new THREE.CylinderGeometry(0.34, 0.34, 1.7, 24), m, 0, 0.85, 0), part(new THREE.CylinderGeometry(0.27, 0.27, 0.02, 20), lambert('#5a4326'), 0, 1.7, 0)] },
   letter: { label: 'Letter', colour: '#ffd23f', make: (m, g, opts) => { m.map = letterTexture(opts.letter || 'A'); return [part(new THREE.BoxGeometry(0.9, 0.9, 0.9), m, 0, 0.45, 0)]; } },
 };
 
@@ -146,7 +184,7 @@ function makeToy(kind, opts = {}) {
   const g = new THREE.Group();
   const paint = lambert(opts.color || def.colour);
   g.add(...def.make(paint, g, opts));
-  g.userData = { kind, paint, letter: opts.letter || (kind === 'letter' ? 'A' : undefined) };
+  g.userData = { kind, paint, drawn: !!opts.drawn, letter: opts.letter || (kind === 'letter' ? 'A' : undefined) };
   g.position.set(opts.x || 0, opts.y || 0, opts.z || 0);
   g.rotation.y = opts.r || 0;
   g.scale.setScalar(opts.s || 1);
@@ -182,7 +220,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       <span class="pg-colours"></span>
       <button data-s="left" title="Turn left (Q)">⟲</button><button data-s="right" title="Turn right (E)">⟳</button>
       <button data-s="smaller" title="Smaller ([)">−</button><button data-s="bigger" title="Bigger (])">+</button>
-      <button data-s="copy" title="Another one (Ctrl/⌘ + D)">Copy</button><button data-s="delete" title="Put it away (Delete)">Remove</button>
+      <button data-s="draw" title="Draw windows and a door on it with a marker" hidden>Draw windows</button><button data-s="copy" title="Another one (Ctrl/⌘ + D)">Copy</button><button data-s="delete" title="Put it away (Delete)">Remove</button>
     </div>
     <div class="pg-box"></div>
     <div class="pg-clock" hidden></div>
@@ -240,7 +278,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
 
   // --- saving
   const save = () => {
-    const data = { carpet: state.carpet, toys: toys.map((t) => ({ kind: t.userData.kind, x: +t.position.x.toFixed(3), y: +t.position.y.toFixed(3), z: +t.position.z.toFixed(3), r: +t.rotation.y.toFixed(3), s: +t.scale.x.toFixed(3), color: `#${t.userData.paint.color.getHexString()}`, ...(t.userData.letter ? { letter: t.userData.letter } : {}) })) };
+    const data = { carpet: state.carpet, toys: toys.map((t) => ({ kind: t.userData.kind, x: +t.position.x.toFixed(3), y: +t.position.y.toFixed(3), z: +t.position.z.toFixed(3), r: +t.rotation.y.toFixed(3), s: +t.scale.x.toFixed(3), color: `#${t.userData.paint.color.getHexString()}`, ...(t.userData.letter ? { letter: t.userData.letter } : {}), ...(t.userData.drawn ? { drawn: 1 } : {}) })) };
     try { localStorage.setItem(KEY(boardId), JSON.stringify(data)); } catch {}
   };
 
@@ -261,6 +299,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     selected = toy;
     ring.visible = !!toy;
     el.querySelector('.pg-sel').hidden = !toy;
+    const drawBtn = el.querySelector('[data-s="draw"]');
+    drawBtn.hidden = !toy?.userData.paint.userData.card;
+    drawBtn.textContent = toy?.userData.drawn ? 'Rub out' : 'Draw windows';
     placeRing();
     needs = true;
   };
@@ -321,7 +362,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   surprise.addEventListener('click', () => {
     const kinds = Object.keys(TOYS), kind = kinds[Math.floor(Math.random() * kinds.length)];
     const x = (Math.random() - 0.5) * (MAT_W - 4), z = (Math.random() - 0.5) * (MAT_D - 4);
-    const toy = addToy(kind, { x, y: 0, z, r: Math.floor(Math.random() * 8) * Math.PI / 4, color: COLOURS[Math.floor(Math.random() * 6)] });
+    const toy = addToy(kind, { x, y: 0, z, r: Math.floor(Math.random() * 8) * Math.PI / 4, ...(TOYS[kind].colour === CARD ? { drawn: Math.random() < 0.5 } : { color: COLOURS[Math.floor(Math.random() * 6)] }) });
     toy.position.y = restingHeight(toy, x, z);
     placeRing(); save();
   });
@@ -332,7 +373,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     b.className = 'pg-swatch';
     b.style.background = c;
     b.title = 'Colour';
-    b.addEventListener('click', () => { if (selected) { selected.userData.paint.color.set(c); needs = true; save(); } });
+    b.addEventListener('click', () => { if (selected) { selected.userData.paint.color.set(c); selected.userData.paint.userData.twin?.color.set(c); needs = true; save(); } });
     swatches.appendChild(b);
   }
   const act = {
@@ -340,7 +381,13 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     right: () => { selected.rotation.y -= Math.PI / 4; },
     smaller: () => { selected.scale.setScalar(Math.max(0.3, selected.scale.x / 1.2)); },
     bigger: () => { selected.scale.setScalar(Math.min(6, selected.scale.x * 1.2)); },
-    copy: () => { const t = selected; addToy(t.userData.kind, { color: `#${t.userData.paint.color.getHexString()}`, r: t.rotation.y, s: t.scale.x, letter: t.userData.letter, x: t.position.x + 1.2, z: t.position.z + 0.6, y: 0 }); selected.position.y = restingHeight(selected, selected.position.x, selected.position.z); },
+    draw: () => {
+      const u = selected.userData, m = u.paint;
+      u.drawn = !u.drawn;
+      m.map.dispose(); m.map = cardTexture(...m.userData.card, u.drawn); m.needsUpdate = true;
+      el.querySelector('[data-s="draw"]').textContent = u.drawn ? 'Rub out' : 'Draw windows';
+    },
+    copy: () => { const t = selected; addToy(t.userData.kind, { drawn: t.userData.drawn, color: `#${t.userData.paint.color.getHexString()}`, r: t.rotation.y, s: t.scale.x, letter: t.userData.letter, x: t.position.x + 1.2, z: t.position.z + 0.6, y: 0 }); selected.position.y = restingHeight(selected, selected.position.x, selected.position.z); },
     delete: () => removeToy(selected),
   };
   const run = (name) => { if (!selected) return; act[name](); placeRing(); needs = true; save(); };
@@ -512,7 +559,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       const centre = b.getCenter(new THREE.Vector3()).sub(toy.position);   // from its foot to its middle, unturned
       const kind = toy.userData.kind;
       const shape = kind === 'ball' ? new CANNON.Sphere(half.y) : new CANNON.Box(new CANNON.Vec3(Math.max(0.05, half.x), Math.max(0.05, half.y), Math.max(0.05, half.z)));
-      const heavy = { house: 1.6, box: 1.1, truck: 1.3, bus: 1.3, tree: 0.6, pine: 0.6, person: 0.5, ball: 0.5 }[kind] || 1;
+      const heavy = { house: 1.6, box: 1.1, truck: 1.3, bus: 1.3, tree: 0.6, pine: 0.6, person: 0.5, ball: 0.5, carton: 0.35, cereal: 0.35, shoebox: 0.35, roll: 0.35 }[kind] || 1;
       const body = new CANNON.Body({ mass: Math.max(0.4, half.x * half.y * half.z * 8 * 0.9 * heavy), shape, linearDamping: 0.08, angularDamping: 0.25 });
       const c = centre.clone().applyQuaternion(q);
       body.position.set(toy.position.x + c.x, toy.position.y + c.y, toy.position.z + c.z);
@@ -654,9 +701,11 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   if (saved?.toys?.length) for (const t of saved.toys) addToy(t.kind, t, { quiet: true });
   else {
     // A first scene, so the mat isn't empty: a few things to push around.
-    for (const [kind, x, z, r, color] of [['house', -10.6, 2.8, 0, null], ['house', 7.8, -5.5, 0, '#ffd23f'], ['box', -2.5, -5.7, 0, null], ['box', 0.3, -5.7, 0, '#3d7bff'], ['tree', -6.8, -6.2, 0, null], ['pine', -11.6, -2.3, 0, null], ['tree', 3.9, 6.1, 0, null], ['car', -1, 0, 0, null], ['bus', 9, 0, Math.PI, null], ['truck', -5, 4.6, Math.PI / 2, null], ['person', -8.2, 3, 0, null], ['person', -7.4, 3.3, 0, '#ff3fa9'], ['block', 7.8, 2.8, 0.4, null], ['letter', 10.5, 2.8, -0.2, null]]) {
-      addToy(kind, { x, y: 0, z, r, ...(color ? { color } : {}) }, { quiet: true });
+    for (const [kind, x, z, r, color] of [['house', -10.6, 2.8, 0, null], ['house', 7.8, -5.5, 0, '#ffd23f'], ['box', -2.5, -5.7, 0, null], ['box', 0.3, -5.7, 0, '#3d7bff'], ['tree', -6.8, -6.2, 0, null], ['pine', -11.6, -2.3, 0, null], ['tree', 3.9, 6.1, 0, null], ['car', -1, 0, 0, null], ['bus', 9, 0, Math.PI, null], ['truck', -5, 4.6, Math.PI / 2, null], ['person', -8.2, 3, 0, null], ['person', -7.4, 3.3, 0, '#ff3fa9'], ['block', 7.8, 2.8, 0.4, null], ['letter', 10.5, 2.8, -0.2, null], ['carton', 9.1, 5.7, 0, null], ['cereal', 1.6, -2.7, 0, null], ['shoebox', -9.1, 5.7, 0, null]]) {
+      addToy(kind, { x, y: 0, z, r, drawn: kind === 'carton' || kind === 'cereal', ...(color ? { color } : {}) }, { quiet: true });
     }
+    // A shoe box on top of the packing box: a building, because there were no more buildings.
+    addToy('shoebox', { x: 9.1, y: 1.62, z: 5.7, r: 0, drawn: true }, { quiet: true });
   }
   size();
   camera.position.copy(homeView());
