@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Playground</title>
+  <meta name="description" content="A play mat and a box of toys. Build a little town, then release the kids and see what's left standing.">
+  <meta name="theme-color" content="#16151c">
+  <link rel="stylesheet" href="vendor/fonts/fonts.css">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body data-tone="dark">
+  <div id="toast"></div>
+  <script type="module">
+    import { openPlayground } from './src/playground.js';
+    const toastEl = document.getElementById('toast');
+    let timer = 0;
+    const toast = (message) => { toastEl.textContent = message; toastEl.classList.add('show'); clearTimeout(timer); timer = setTimeout(() => toastEl.classList.remove('show'), 2600); };
+    // The whole page is the playground (there is nothing to go back to, so no close).
+    openPlayground({ boardId: 'main', addImage: null, toast, standalone: true });
+    window.__playground = { toast };
+  </script>
+</body>
+</html>
