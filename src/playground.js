@@ -224,7 +224,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     </div>
     <div class="pg-box"></div>
     <div class="pg-clock" hidden></div>
-    <button class="pg-shoo" title="Scatter the kids for a moment. Once per test. (Space)" hidden>Shoo!</button>
+    <button class="pg-shoo" title="Blast the kids off the carpet. The toys feel nothing. Once per test. (Space)" hidden>Boom!</button>
     <div class="pg-result" hidden></div>`;
   document.body.appendChild(el);
 
@@ -500,11 +500,18 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     controls.update();
     needs = true;
   });
-  el.querySelector('[data-a="clear"]').addEventListener('click', () => {
-    if (!toys.length || !confirm('Put all the toys away?')) return;
+  // Clear asks on the button itself: press once, it says "Sure?", press again within a few seconds.
+  const clearBtn = el.querySelector('[data-a="clear"]');
+  let clearTimer = 0;
+  const clearRest = () => { clearTimeout(clearTimer); clearBtn.textContent = 'Clear'; clearBtn.classList.remove('on'); };
+  clearBtn.addEventListener('click', () => {
+    if (!toys.length) { toast('The carpet is already empty.'); return; }
+    if (!clearBtn.classList.contains('on')) { clearBtn.textContent = 'Sure?'; clearBtn.classList.add('on'); clearTimer = setTimeout(clearRest, 3000); return; }
+    clearRest();
     for (const t of [...toys]) scene.remove(t);
     toys.length = 0;
     select(null);
+    needs = true;
     save();
   });
   el.querySelector('[data-a="shot"]').addEventListener('click', () => {
@@ -547,7 +554,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     world.defaultContactMaterial.restitution = 0.05;
     // Kids slide over the floor without friction (they are steered, not rolled); otherwise the floor holds them still.
     const floorMat = new CANNON.Material({ friction: 1 }), kidMat = new CANNON.Material({ friction: 0 });
-    world.addBody(new CANNON.Body({ mass: 0, material: floorMat, shape: new CANNON.Plane(), quaternion: new CANNON.Quaternion().setFromEuler(-Math.PI / 2, 0, 0) }));
+    world.addBody(new CANNON.Body({ mass: 0, material: floorMat, collisionFilterGroup: 2, shape: new CANNON.Plane(), quaternion: new CANNON.Quaternion().setFromEuler(-Math.PI / 2, 0, 0) }));
     // Every toy becomes a solid box the size of the toy (a ball becomes a ball).
     const items = toys.map((toy) => {
       const start = { p: toy.position.clone(), q: toy.quaternion.clone() };
@@ -585,7 +592,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     const clock = el.querySelector('.pg-clock');
     clock.hidden = false;
     game = { world, items, kids, t: 0, last: performance.now(), leaving: false, shoo: -1 };
-    // Shoo! Your one special move per test: every kid jumps and scatters off the carpet for a moment.
+    // Boom! Your one special move per test: a blast that only kids feel. They fly out of sight, land, and run back.
     const shooBtn = el.querySelector('.pg-shoo');
     shooBtn.hidden = false; shooBtn.disabled = false;
     const wave = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 64), new THREE.MeshBasicMaterial({ color: '#ff3fa9', transparent: true, depthWrite: false }));
@@ -595,7 +602,16 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       if (!game || game.leaving || game.shoo >= 0) return;
       game.shoo = game.t;
       shooBtn.disabled = true;
-      for (const k of kids) { k.body.velocity.y = 9 + Math.random() * 4; k.target = null; }
+      let cx = 0, cz = 0;
+      for (const k of kids) { cx += k.body.position.x / kids.length; cz += k.body.position.z / kids.length; }
+      wave.position.set(cx, 0.05, cz);
+      for (const k of kids) {
+        // Away from the middle of the crowd, and up. In the air a kid passes through toys and other kids.
+        const a = Math.atan2(k.body.position.z - cz, k.body.position.x - cx) + (Math.random() - 0.5) * 1.2, out = 16 + Math.random() * 9;
+        k.body.velocity.set(Math.cos(a) * out, 20 + Math.random() * 9, Math.sin(a) * out);
+        k.body.collisionFilterMask = 2; k.body.linearDamping = 0.02;
+        k.fly = true; k.spin = (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 6); k.target = null;
+      }
     };
     const tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3();
     const step = () => {
@@ -606,20 +622,26 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       game.t += dt;
       const left = LENGTH - game.t;
       game.leaving = left <= 0;
-      const scared = game.shoo >= 0 && game.t - game.shoo < 1.5, away = game.leaving || scared;
+      const away = game.leaving;
       if (game.leaving) shooBtn.hidden = true;
       const w = game.shoo >= 0 ? (game.t - game.shoo) / 0.9 : 2;
       wave.visible = w < 1;
-      if (w < 1) { wave.scale.setScalar(1 + w * 26); wave.material.opacity = 0.8 * (1 - w); }
+      if (w < 1) { wave.scale.setScalar(1 + w * 40); wave.material.opacity = 0.9 * (1 - w); }
       clock.textContent = left > 0 ? `${Math.ceil(left)}` : 'Home time!';
       for (const k of kids) {
+        if (k.fly) {
+          // Blown into the air: nothing to steer until they land.
+          if (game.t - game.shoo > 0.4 && k.body.position.y < KID_R + 0.1) { k.fly = false; k.body.collisionFilterMask = -1; k.body.linearDamping = 0.3; }
+          else continue;
+        }
         // Pick something to go for, and change your mind often.
         if (!away && (!k.target || game.t > k.until)) { k.target = items[Math.floor(Math.random() * items.length)]; k.until = game.t + 2.2 + Math.random() * 2.5; }
         let tx, tz;
         if (away) { const a = Math.atan2(k.body.position.z, k.body.position.x); tx = Math.cos(a) * 80; tz = Math.sin(a) * 80; }
         else { tx = k.target.body.position.x; tz = k.target.body.position.z; }
         const dx = tx - k.body.position.x, dz = tz - k.body.position.z, d = Math.hypot(dx, dz) || 1;
-        const sp = k.speed * (scared ? 1.8 : game.leaving ? 1.6 : 1);
+        const off = Math.abs(k.body.position.x) > MAT_W / 2 + 2 || Math.abs(k.body.position.z) > MAT_D / 2 + 2;   // off the carpet: hurry back
+        const sp = k.speed * (game.leaving ? 1.6 : off ? 2.6 : 1);
         k.body.velocity.x += ((dx / d) * sp - k.body.velocity.x) * Math.min(1, dt * 6);
         k.body.velocity.z += ((dz / d) * sp - k.body.velocity.z) * Math.min(1, dt * 6);
         // Up close: shove it, and now and then jump at it.
@@ -640,7 +662,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       for (const k of kids) {
         // A waddle: they bob and rock as they run.
         k.mesh.position.set(k.body.position.x, k.body.position.y - KID_R + Math.abs(Math.sin(game.t * 9 + k.phase)) * 0.4, k.body.position.z);
-        k.mesh.rotation.set(0, k.face, Math.sin(game.t * 9 + k.phase) * 0.14);
+        if (k.fly) { k.mesh.position.y = k.body.position.y - KID_R * 0.4; k.mesh.rotation.set((game.t - game.shoo) * k.spin, k.face, 0); }   // tumbling through the air
+        else k.mesh.rotation.set(0, k.face, Math.sin(game.t * 9 + k.phase) * 0.14);
       }
       needs = true;
       if (game.t < LENGTH + 2.2) requestAnimationFrame(step); else finish();
