@@ -226,7 +226,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   };
 
   // --- toys
-  const boxOf = (t) => new THREE.Box3().setFromObject(t);
+  // Measured from the real shape (precise), so a turned roof does not make the toy seem wider than it is.
+  const boxOf = (t) => new THREE.Box3().setFromObject(t, true);
   // Where a toy rests at this spot: on the carpet, or on top of whatever is under it.
   const restingHeight = (toy, x, z) => {
     let y = 0;
@@ -448,7 +449,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     world.allowSleep = false;
     world.defaultContactMaterial.friction = 0.55;
     world.defaultContactMaterial.restitution = 0.05;
-    world.addBody(new CANNON.Body({ mass: 0, shape: new CANNON.Plane(), quaternion: new CANNON.Quaternion().setFromEuler(-Math.PI / 2, 0, 0) }));
+    // Kids slide over the floor without friction (they are steered, not rolled); otherwise the floor holds them still.
+    const floorMat = new CANNON.Material({ friction: 1 }), kidMat = new CANNON.Material({ friction: 0 });
+    world.addBody(new CANNON.Body({ mass: 0, material: floorMat, shape: new CANNON.Plane(), quaternion: new CANNON.Quaternion().setFromEuler(-Math.PI / 2, 0, 0) }));
     // Every toy becomes a solid box the size of the toy (a ball becomes a ball).
     const items = toys.map((toy) => {
       const start = { p: toy.position.clone(), q: toy.quaternion.clone() };
@@ -477,7 +480,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       const a = (i / count) * Math.PI * 2 + Math.random() * 0.5;
       const mesh = makeKid(i);
       scene.add(mesh);
-      const body = new CANNON.Body({ mass: 2.2, shape: new CANNON.Sphere(0.3), linearDamping: 0.3, fixedRotation: true });
+      const body = new CANNON.Body({ mass: 2.2, material: kidMat, shape: new CANNON.Sphere(0.3), linearDamping: 0.3, fixedRotation: true });
       body.position.set(Math.cos(a) * (MAT_W / 2 + 2 + Math.random() * 3), 0.3, Math.sin(a) * (MAT_D / 2 + 2 + Math.random() * 3));
       world.addBody(body);
       kids.push({ mesh, body, target: null, until: 0, speed: 3.6 + Math.random() * 2.2, phase: Math.random() * 6, face: 0 });
