@@ -22,7 +22,7 @@ button { font: inherit; color: inherit; }
 /* ---------- Playground: a play mat and a box of 3D toys ---------- */
 #playground { position: fixed; inset: 0; z-index: 60; background: var(--bg); }
 #playground canvas { position: absolute; inset: 0; width: 100%; height: 100%; display: block; touch-action: none; }
-.pg-top { position: absolute; left: 12px; right: 12px; top: 10px; display: flex; align-items: center; gap: 8px; padding: 7px 8px 7px 16px; border: 1px solid var(--panel-border); border-radius: var(--blob); background: var(--overlay); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); }
+.pg-top { position: absolute; left: 12px; right: 12px; top: 10px; display: flex; align-items: center; flex-wrap: wrap; gap: 6px 8px; padding: 7px 8px 7px 16px; border: 1px solid var(--panel-border); border-radius: var(--blob); background: var(--overlay); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); }
 .pg-top strong { font: 700 17px var(--font-display); color: var(--accent); letter-spacing: 0.01em; }
 .pg-hint { font-size: 12px; color: var(--text); margin-left: 6px; }
 .pg-space { flex: 1; }
@@ -41,7 +41,7 @@ button { font: inherit; color: inherit; }
 .pg-colours { display: flex; gap: 5px; margin-right: 6px; }
 #playground .pg-swatch { width: 24px; height: 24px; padding: 0; border-radius: 50%; border: 2px solid rgba(255, 255, 255, 0.55); }
 #playground .pg-swatch:hover { transform: scale(1.15); }
-@media (max-width: 900px) { .pg-hint { display: none; } }
+@media (max-width: 1500px) { .pg-hint { display: none; } }
 
 /* Playground: the kid test */
 .pg-div { width: 1px; height: 20px; background: var(--panel-border); margin: 0 4px; }
@@ -52,3 +52,24 @@ button { font: inherit; color: inherit; }
 .pg-result strong { font: 700 40px/1.1 var(--font-display); color: var(--accent); }
 .pg-result span { font: 500 15px var(--font-second); color: var(--text-strong); }
 .pg-result div { display: flex; gap: 8px; margin-top: 8px; }
+
+/* Lock toys, and the surprise button */
+#playground button.on { border-color: var(--accent); color: var(--accent); }
+#playground .pg-box .pg-surprise { padding: 0 12px; border-style: dashed; border-color: var(--accent); color: var(--accent); }
+
+/* On a phone: a compact top bar, and the toy box becomes one row you swipe through. */
+@media (max-width: 700px) {
+  .pg-top { left: 8px; right: 8px; top: 8px; padding: 6px 8px; justify-content: center; }
+  .pg-top strong, .pg-top .pg-space, .pg-top .pg-div { display: none; }
+  #playground .pg-top button, #playground .pg-top select { padding: 0 7px; font-size: 12px; }
+  #toast { bottom: auto; top: 110px; width: max-content; max-width: calc(100vw - 32px); }
+  .pg-box { left: 8px; right: 8px; bottom: calc(10px + env(safe-area-inset-bottom, 0px)); transform: none; width: auto; max-width: none; flex-wrap: nowrap; justify-content: flex-start; overflow-x: auto; scrollbar-width: none; }
+  .pg-box::-webkit-scrollbar { display: none; }
+  #playground .pg-box button { flex: none; height: 38px; }
+  .pg-sel { top: auto; bottom: calc(74px + env(safe-area-inset-bottom, 0px)); flex-wrap: wrap; justify-content: center; width: max-content; max-width: calc(100vw - 16px); box-sizing: border-box; }
+  .pg-top [data-a="shot"] { display: none; }   /* a phone has its own screenshot */
+  #playground.pg-playing .pg-top, #playground.pg-playing .pg-box { display: none; }   /* nothing in the way of the show */
+  .pg-clock { top: calc(14px + env(safe-area-inset-top, 0px)); }
+  .pg-result { top: auto; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 22px 18px 18px; }
+  .pg-result strong { font-size: 30px; }
+}

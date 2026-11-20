@@ -19,50 +19,63 @@ import * as CANNON from '../vendor/cannon-es.js';
 // Primary colours, leaning on Melti's own pink and blue.
 const COLOURS = ['#ff3fa9', '#3d7bff', '#ffd23f', '#ff5a4f', '#3ecf8e', '#ff9a3d', '#f6f3ff', '#24222e'];
 const ROAD = '#3b3850', LINE = '#f6f3ff';
-const MAT_W = 18, MAT_D = 12;   // the carpet, in toy units (a block is 1)
+const MAT_W = 30, MAT_D = 20;   // the carpet, in toy units (a block is 1)
+const KID = 5;                  // the kids are real children: giants next to the toys
+const KID_R = 1.2;              // how wide a kid is when bumping into things
 
 const KEY = (id) => `playground.scene.${id}`;
 
 // ---------- The carpet ----------
 
 function carpetTexture(style) {
+  const u = 80;   // pixels per toy unit
+  const W = MAT_W, H = MAT_D;
   const c = document.createElement('canvas');
-  c.width = 1800; c.height = 1200;
+  c.width = W * u; c.height = H * u;
   const g = c.getContext('2d');
-  const u = 100;   // pixels per toy unit
+  g.scale(u, u);   // from here on, everything is drawn in toy units
   if (style === 'plain') {
-    g.fillStyle = '#3ecf8e'; g.fillRect(0, 0, c.width, c.height);
+    g.fillStyle = '#3ecf8e'; g.fillRect(0, 0, W, H);
   } else if (style === 'grid') {
-    for (let y = 0; y < 12; y++) for (let x = 0; x < 18; x++) { g.fillStyle = (x + y) % 2 ? '#f6f3ff' : '#ffd0ea'; g.fillRect(x * u, y * u, u, u); }
+    for (let y = 0; y < H / 2; y++) for (let x = 0; x < W / 2; x++) { g.fillStyle = (x + y) % 2 ? '#f6f3ff' : '#ffd0ea'; g.fillRect(x * 2, y * 2, 2, 2); }
   } else {
-    // A little town: grass, a ring road with a crossroads, a pond, a car park, building plots.
-    g.fillStyle = '#58d6a0'; g.fillRect(0, 0, c.width, c.height);
-    const road = (draw) => { g.strokeStyle = ROAD; g.lineWidth = 150; g.lineCap = 'round'; g.lineJoin = 'round'; g.setLineDash([]); g.beginPath(); draw(); g.stroke(); };
-    const dashes = (draw) => { g.strokeStyle = LINE; g.lineWidth = 8; g.setLineDash([46, 40]); g.beginPath(); draw(); g.stroke(); g.setLineDash([]); };
-    const ring = () => { g.roundRect(170, 170, c.width - 340, c.height - 340, 220); };
-    const cross = () => { g.moveTo(900, 170); g.lineTo(900, 1030); g.moveTo(170, 600); g.lineTo(1630, 600); };
-    road(ring); road(cross);
-    dashes(ring); dashes(cross);
-    // The roundabout in the middle.
-    g.fillStyle = ROAD; g.beginPath(); g.arc(900, 600, 170, 0, 7); g.fill();
-    g.fillStyle = '#ff3fa9'; g.beginPath(); g.arc(900, 600, 78, 0, 7); g.fill();
-    g.strokeStyle = LINE; g.lineWidth = 8; g.beginPath(); g.arc(900, 600, 124, 0, 7); g.setLineDash([40, 34]); g.stroke(); g.setLineDash([]);
+    // A little town: grass, a ring road, three streets, a roundabout, a pond, a car park, a pitch, building plots.
+    g.fillStyle = '#58d6a0'; g.fillRect(0, 0, W, H);
+    const road = (draw) => { g.strokeStyle = ROAD; g.lineWidth = 1.5; g.lineCap = 'round'; g.lineJoin = 'round'; g.setLineDash([]); g.beginPath(); draw(); g.stroke(); };
+    const dashes = (draw) => { g.strokeStyle = LINE; g.lineWidth = 0.08; g.setLineDash([0.46, 0.4]); g.beginPath(); draw(); g.stroke(); g.setLineDash([]); };
+    const ring = () => { g.roundRect(1.7, 1.7, W - 3.4, H - 3.4, 2.2); };
+    const streets = () => { g.moveTo(10, 1.7); g.lineTo(10, H - 1.7); g.moveTo(20, 1.7); g.lineTo(20, H - 1.7); g.moveTo(1.7, 10); g.lineTo(W - 1.7, 10); };
+    road(ring); road(streets);
+    dashes(ring); dashes(streets);
+    // The roundabout.
+    g.fillStyle = ROAD; g.beginPath(); g.arc(20, 10, 1.7, 0, 7); g.fill();
+    g.fillStyle = '#ff3fa9'; g.beginPath(); g.arc(20, 10, 0.78, 0, 7); g.fill();
+    g.strokeStyle = LINE; g.lineWidth = 0.08; g.beginPath(); g.arc(20, 10, 1.24, 0, 7); g.setLineDash([0.4, 0.34]); g.stroke(); g.setLineDash([]);
     // Zebra crossings.
     g.fillStyle = LINE;
-    for (const [x, y, vertical] of [[520, 600, true], [1280, 600, true], [900, 330, false], [900, 870, false]]) {
-      for (let i = -3; i <= 3; i++) vertical ? g.fillRect(x - 12, y + i * 20 - 6, 60, 12) : g.fillRect(x + i * 20 - 6, y - 12, 12, 60);
+    for (const [x, y, vertical] of [[7.9, 10, true], [12.1, 10, true], [17.4, 10, true], [22.6, 10, true], [10, 7.9, false], [10, 12.1, false], [20, 7.4, false], [20, 12.6, false]]) {
+      for (let i = -3; i <= 3; i++) vertical ? g.fillRect(x - 0.3, y + i * 0.2 - 0.06, 0.6, 0.12) : g.fillRect(x + i * 0.2 - 0.06, y - 0.3, 0.12, 0.6);
     }
-    // A pond, a car park and plots to build on.
-    g.fillStyle = '#3d7bff'; g.beginPath(); g.ellipse(520, 370, 150, 92, -0.2, 0, 7); g.fill();
-    g.fillStyle = '#8fb6ff'; g.beginPath(); g.ellipse(490, 350, 60, 26, -0.2, 0, 7); g.fill();
-    g.fillStyle = '#4a4763'; g.beginPath(); g.roundRect(1040, 690, 440, 230, 26); g.fill();
-    g.strokeStyle = LINE; g.lineWidth = 6;
-    for (let i = 1; i < 6; i++) { g.beginPath(); g.moveTo(1040 + i * 73, 700); g.lineTo(1040 + i * 73, 790); g.moveTo(1040 + i * 73, 820); g.lineTo(1040 + i * 73, 910); g.stroke(); }
-    for (const [x, y, w, h, col] of [[1050, 290, 180, 180, '#ffd23f'], [1280, 290, 200, 180, '#ff9a3d'], [330, 700, 200, 200, '#ffd0ea'], [590, 700, 170, 200, '#ffd23f']]) {
-      g.fillStyle = col; g.globalAlpha = 0.55; g.beginPath(); g.roundRect(x, y, w, h, 22); g.fill(); g.globalAlpha = 1;
-    }
+    // A pond.
+    g.fillStyle = '#3d7bff'; g.beginPath(); g.ellipse(5.6, 5.8, 2.3, 1.4, -0.2, 0, 7); g.fill();
+    g.fillStyle = '#8fb6ff'; g.beginPath(); g.ellipse(5.2, 5.5, 0.9, 0.4, -0.2, 0, 7); g.fill();
+    // A car park.
+    g.fillStyle = '#4a4763'; g.beginPath(); g.roundRect(11.6, 11.5, 6.8, 2.6, 0.26); g.fill();
+    g.strokeStyle = LINE; g.lineWidth = 0.06;
+    for (let i = 1; i < 7; i++) { g.beginPath(); g.moveTo(11.6 + i * 0.97, 11.6); g.lineTo(11.6 + i * 0.97, 12.6); g.moveTo(11.6 + i * 0.97, 13); g.lineTo(11.6 + i * 0.97, 14); g.stroke(); }
+    // A football pitch.
+    g.fillStyle = '#7be3b4'; g.beginPath(); g.roundRect(11.8, 14.8, 6.4, 2.6, 0.2); g.fill();
+    g.strokeStyle = LINE; g.lineWidth = 0.07; g.beginPath(); g.roundRect(12.05, 15.05, 5.9, 2.1, 0.1); g.moveTo(15, 15.05); g.lineTo(15, 17.15); g.moveTo(15.55, 16.1); g.arc(15, 16.1, 0.55, 0, 7); g.stroke();
+    // Plots to build on.
+    const pink = '#ffd0ea', yellow = '#ffd23f', orange = '#ff9a3d';
+    for (const [x, y, w, h, col] of [
+      [11.4, 3.2, 2.2, 2.2, yellow], [14.1, 3.2, 2.4, 2.2, orange], [17, 3.2, 1.8, 2.2, pink], [11.4, 6.2, 3, 2.3, pink], [15, 6.2, 3.6, 2.3, yellow],
+      [21.6, 3.3, 2.4, 2.4, orange], [24.4, 3.3, 2.2, 2.4, yellow], [21.8, 6.4, 4.6, 2, pink],
+      [3.2, 11.6, 2.4, 2.4, pink], [6, 11.6, 2.6, 2.4, yellow], [3.4, 14.6, 5, 2.2, orange],
+      [21.6, 11.6, 2.4, 2.4, yellow], [24.4, 11.6, 2.2, 2.4, pink], [21.8, 14.6, 4.6, 2.2, orange],
+    ]) { g.fillStyle = col; g.globalAlpha = 0.55; g.beginPath(); g.roundRect(x, y, w, h, 0.22); g.fill(); g.globalAlpha = 1; }
     // A stitched border, like a real play mat.
-    g.strokeStyle = '#2f9f73'; g.lineWidth = 10; g.setLineDash([26, 20]); g.strokeRect(34, 34, c.width - 68, c.height - 68); g.setLineDash([]);
+    g.strokeStyle = '#2f9f73'; g.lineWidth = 0.1; g.setLineDash([0.26, 0.2]); g.strokeRect(0.34, 0.34, W - 0.68, H - 0.68); g.setLineDash([]);
   }
   const t = new THREE.CanvasTexture(c);
   t.colorSpace = THREE.SRGBColorSpace;
@@ -155,7 +168,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       <strong>Playground</strong>
       <span class="pg-hint">Pick a toy. Drag toys to move them (they stack). Drag the floor to look around.</span>
       <span class="pg-space"></span>
-      <select data-a="kids" title="How many kids"><option value="5">A few kids</option><option value="10" selected>A class of kids</option><option value="18">Far too many kids</option></select>
+      <button data-a="lock" title="Lock the toys in place, so you can look around freely (L)">Lock toys</button>
+      <select data-a="kids" title="How many kids"><option value="3">A few kids</option><option value="6" selected>A class of kids</option><option value="10">Far too many kids</option></select>
       <button data-a="release" class="primary">Release the kids!</button>
       <i class="pg-div"></i>
       <select data-a="carpet" title="The carpet"><option value="town">Town carpet</option><option value="grid">Checker carpet</option><option value="plain">Plain carpet</option></select>
@@ -183,26 +197,31 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   el.prepend(renderer.domElement);
   const scene = new THREE.Scene();
   scene.background = new THREE.Color(dark ? '#16151c' : '#f3f1f4');
-  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 200);
-  const HOME = new THREE.Vector3(0, 13, 17);
-  camera.position.copy(HOME);
+  const camera = new THREE.PerspectiveCamera(38, 1, 0.1, 500);
+  // Where the camera starts: far enough back to see the whole carpet, further on a tall, narrow screen.
+  const fit = () => Math.max(1, Math.min(3.4, 1.5 / camera.aspect));
+  const homeView = () => new THREE.Vector3(0, 21, 27).multiplyScalar(fit());
+  const topView = () => new THREE.Vector3(0, 40 * fit(), 0.01);
   const controls = new OrbitControls(camera, renderer.domElement);
   controls.target.set(0, 0, 0.5);
   controls.maxPolarAngle = Math.PI / 2 - 0.08;
-  controls.minDistance = 4; controls.maxDistance = 45;
+  controls.minDistance = 2.5; controls.maxDistance = 130;   // from down in the street to the whole room
+  controls.screenSpacePanning = false;   // panning slides over the floor
+  controls.zoomToCursor = true;
   controls.enableDamping = true; controls.dampingFactor = 0.12;
 
   scene.add(new THREE.HemisphereLight('#ffffff', dark ? '#3a3560' : '#c9c2dd', 1.5));
   const sun = new THREE.DirectionalLight('#fff4e6', 2.1);
-  sun.position.set(7, 14, 6);
+  sun.position.set(11, 22, 9);
   sun.castShadow = true;
   sun.shadow.mapSize.set(2048, 2048);
-  Object.assign(sun.shadow.camera, { left: -14, right: 14, top: 12, bottom: -12, near: 1, far: 40 });
+  sun.shadow.radius = 2;
+  Object.assign(sun.shadow.camera, { left: -24, right: 24, top: 20, bottom: -20, near: 1, far: 70 });
   sun.shadow.bias = -0.0005;
   scene.add(sun);
 
   // The room's floor (so there's somewhere beyond the carpet), and the carpet on it.
-  const room = new THREE.Mesh(new THREE.PlaneGeometry(120, 120), new THREE.MeshLambertMaterial({ color: dark ? '#221f2d' : '#e6e1ec' }));
+  const room = new THREE.Mesh(new THREE.PlaneGeometry(600, 600), new THREE.MeshLambertMaterial({ color: dark ? '#221f2d' : '#e6e1ec' }));
   room.rotation.x = -Math.PI / 2; room.position.y = -0.06; room.receiveShadow = true;
   scene.add(room);
   const carpetMat = new THREE.MeshLambertMaterial({ color: '#ffffff' });
@@ -211,7 +230,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   scene.add(carpet);
 
   const toys = [];
-  let selected = null, drag = null, needs = true, raf = 0, nextLetter = 0;
+  let selected = null, drag = null, needs = true, raf = 0, nextLetter = 0, locked = false;
   const state = { carpet: 'town' };
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 48), new THREE.MeshBasicMaterial({ color: '#ff3fa9', transparent: true, opacity: 0.95, depthTest: false }));
   ring.rotation.x = -Math.PI / 2; ring.visible = false; ring.renderOrder = 5;
@@ -294,6 +313,19 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     b.addEventListener('click', () => addToy(kind));
     box.appendChild(b);
   }
+  // Surprise: a random toy, somewhere on the carpet.
+  const surprise = document.createElement('button');
+  surprise.className = 'pg-surprise';
+  surprise.textContent = 'Surprise!';
+  surprise.title = 'A random toy, somewhere on the carpet';
+  surprise.addEventListener('click', () => {
+    const kinds = Object.keys(TOYS), kind = kinds[Math.floor(Math.random() * kinds.length)];
+    const x = (Math.random() - 0.5) * (MAT_W - 4), z = (Math.random() - 0.5) * (MAT_D - 4);
+    const toy = addToy(kind, { x, y: 0, z, r: Math.floor(Math.random() * 8) * Math.PI / 4, color: COLOURS[Math.floor(Math.random() * 6)] });
+    toy.position.y = restingHeight(toy, x, z);
+    placeRing(); save();
+  });
+  box.prepend(surprise);
   const swatches = el.querySelector('.pg-colours');
   for (const c of COLOURS) {
     const b = document.createElement('button');
@@ -329,24 +361,29 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     return o || null;
   };
   const cv = renderer.domElement;
+  // Two fingers always mean "look around": a toy under a finger is let go and put back.
+  const fingers = new Set();
+  const letGo = () => { if (!drag) return; drag.toy.position.copy(drag.from); drag = null; controls.enabled = true; placeRing(); needs = true; };
+  cv.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') fingers.add(e.pointerId); if (fingers.size > 1) letGo(); }, true);
+  for (const t of ['pointerup', 'pointercancel']) cv.addEventListener(t, (e) => fingers.delete(e.pointerId), true);
   cv.addEventListener('pointerdown', (e) => {
-    if (e.button !== 0 || game) return;
+    if (e.button !== 0 || game || locked || fingers.size > 1) return;
     const toy = toyAt(e);
     select(toy);
     if (!toy) return;
     // Slide it along the height it's standing at, keeping it under the mouse.
     floor.constant = -toy.position.y;
     ray.ray.intersectPlane(floor, hit);
-    drag = { toy, dx: toy.position.x - hit.x, dz: toy.position.z - hit.z };
+    drag = { toy, from: toy.position.clone(), dx: toy.position.x - hit.x, dz: toy.position.z - hit.z };
     controls.enabled = false;
     cv.setPointerCapture(e.pointerId);
   });
   cv.addEventListener('pointermove', (e) => {
-    if (!drag) { cv.style.cursor = toyAt(e) ? 'grab' : ''; return; }
+    if (!drag) { cv.style.cursor = !locked && toyAt(e) ? 'grab' : ''; return; }
     aim(e);
     floor.constant = 0;
     if (!ray.ray.intersectPlane(floor, hit)) return;
-    const x = Math.max(-30, Math.min(30, hit.x + drag.dx)), z = Math.max(-30, Math.min(30, hit.z + drag.dz));
+    const x = Math.max(-40, Math.min(40, hit.x + drag.dx)), z = Math.max(-40, Math.min(40, hit.z + drag.dz));
     drag.toy.position.set(x, restingHeight(drag.toy, x, z), z);
     cv.style.cursor = 'grabbing';
     placeRing();
@@ -369,6 +406,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     e.stopPropagation();
     const mod = e.metaKey || e.ctrlKey;
     if (e.key === 'Escape') { if (game) return; if (selected) select(null); else if (!standalone) close(); return; }
+    if (e.code === 'KeyL' && !mod && selected?.userData.kind !== 'letter') { setLocked(!locked); return; }
     if (!selected || game) return;
     if (e.key === 'Delete' || e.key === 'Backspace') { e.preventDefault(); run('delete'); }
     else if (mod && e.code === 'KeyD') { e.preventDefault(); run('copy'); }
@@ -396,11 +434,19 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
 
   // --- the buttons along the top
   el.querySelector('[data-a="carpet"]').addEventListener('change', (e) => { setCarpet(e.target.value); save(); });
+  const lockBtn = el.querySelector('[data-a="lock"]');
+  const setLocked = (on) => {
+    locked = on;
+    lockBtn.classList.toggle('on', on);
+    lockBtn.textContent = on ? 'Toys locked' : 'Lock toys';
+    if (on) { select(null); toast('Toys are locked. Drag, pinch and zoom freely.'); }
+  };
+  lockBtn.addEventListener('click', () => setLocked(!locked));
   el.querySelector('[data-a="top"]').addEventListener('click', (e) => {
     const above = e.currentTarget.dataset.on !== '1';
     e.currentTarget.dataset.on = above ? '1' : '';
     e.currentTarget.textContent = above ? 'From the side' : 'From above';
-    camera.position.copy(above ? new THREE.Vector3(0, 24, 0.01) : HOME);
+    camera.position.copy(above ? topView() : homeView());
     controls.target.set(0, 0, above ? 0 : 0.5);
     controls.update();
     needs = true;
@@ -436,6 +482,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     for (const sx of [-0.09, 0.09]) g.add(part(new THREE.SphereGeometry(0.035, 8, 6), wheelMat, sx, 0.72, 0.22));
     // Arms up, obviously.
     for (const sx of [-1, 1]) { const arm = part(new THREE.CylinderGeometry(0.04, 0.04, 0.3, 8), col, sx * 0.24, 0.5, 0); arm.rotation.z = sx * -0.7; g.add(arm); }
+    g.scale.setScalar(KID);
     return g;
   };
   const releaseKids = () => {
@@ -474,16 +521,16 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       return { toy, body, centre, start };
     });
     // The kids come in from every side of the carpet.
-    const count = Number(el.querySelector('[data-a="kids"]').value) || 10;
+    const count = Number(el.querySelector('[data-a="kids"]').value) || 6;
     const kids = [];
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2 + Math.random() * 0.5;
       const mesh = makeKid(i);
       scene.add(mesh);
-      const body = new CANNON.Body({ mass: 2.2, material: kidMat, shape: new CANNON.Sphere(0.3), linearDamping: 0.3, fixedRotation: true });
-      body.position.set(Math.cos(a) * (MAT_W / 2 + 2 + Math.random() * 3), 0.3, Math.sin(a) * (MAT_D / 2 + 2 + Math.random() * 3));
+      const body = new CANNON.Body({ mass: 6, material: kidMat, shape: new CANNON.Sphere(KID_R), linearDamping: 0.3, fixedRotation: true });
+      body.position.set(Math.cos(a) * (MAT_W / 2 + 4 + Math.random() * 4), KID_R, Math.sin(a) * (MAT_D / 2 + 4 + Math.random() * 4));
       world.addBody(body);
-      kids.push({ mesh, body, target: null, until: 0, speed: 3.6 + Math.random() * 2.2, phase: Math.random() * 6, face: 0 });
+      kids.push({ mesh, body, target: null, until: 0, speed: 4.2 + Math.random() * 2.4, phase: Math.random() * 6, face: 0 });
     }
     const LENGTH = 11;   // seconds of mayhem
     const clock = el.querySelector('.pg-clock');
@@ -501,19 +548,19 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       clock.textContent = left > 0 ? `${Math.ceil(left)}` : 'Home time!';
       for (const k of kids) {
         // Pick something to go for, and change your mind often.
-        if (!game.leaving && (!k.target || game.t > k.until)) { k.target = items[Math.floor(Math.random() * items.length)]; k.until = game.t + 1.2 + Math.random() * 2; }
+        if (!game.leaving && (!k.target || game.t > k.until)) { k.target = items[Math.floor(Math.random() * items.length)]; k.until = game.t + 2.2 + Math.random() * 2.5; }
         let tx, tz;
-        if (game.leaving) { const a = Math.atan2(k.body.position.z, k.body.position.x); tx = Math.cos(a) * 40; tz = Math.sin(a) * 40; }
+        if (game.leaving) { const a = Math.atan2(k.body.position.z, k.body.position.x); tx = Math.cos(a) * 80; tz = Math.sin(a) * 80; }
         else { tx = k.target.body.position.x; tz = k.target.body.position.z; }
         const dx = tx - k.body.position.x, dz = tz - k.body.position.z, d = Math.hypot(dx, dz) || 1;
         const sp = k.speed * (game.leaving ? 1.6 : 1);
         k.body.velocity.x += ((dx / d) * sp - k.body.velocity.x) * Math.min(1, dt * 6);
         k.body.velocity.z += ((dz / d) * sp - k.body.velocity.z) * Math.min(1, dt * 6);
         // Up close: shove it, and now and then jump at it.
-        if (!game.leaving && d < 1.3) {
+        if (!game.leaving && d < KID_R + 1.2) {
           const push = 5 + Math.random() * 6;
           k.target.body.applyImpulse(new CANNON.Vec3((dx / d) * push * dt * 9, push * dt * 2.5, (dz / d) * push * dt * 9), new CANNON.Vec3(k.body.position.x, k.target.body.position.y + 0.3, k.body.position.z));
-          if (Math.random() < dt * 1.6 && k.body.position.y < 0.5) k.body.velocity.y = 6 + Math.random() * 3;
+          if (Math.random() < dt * 1.6 && k.body.position.y < KID_R + 0.2) k.body.velocity.y = 7 + Math.random() * 4;
         }
         k.face = Math.atan2(k.body.velocity.x, k.body.velocity.z);
       }
@@ -526,8 +573,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       }
       for (const k of kids) {
         // A waddle: they bob and rock as they run.
-        k.mesh.position.set(k.body.position.x, k.body.position.y - 0.3 + Math.abs(Math.sin(game.t * 14 + k.phase)) * 0.12, k.body.position.z);
-        k.mesh.rotation.set(0, k.face, Math.sin(game.t * 14 + k.phase) * 0.18);
+        k.mesh.position.set(k.body.position.x, k.body.position.y - KID_R + Math.abs(Math.sin(game.t * 9 + k.phase)) * 0.4, k.body.position.z);
+        k.mesh.rotation.set(0, k.face, Math.sin(game.t * 9 + k.phase) * 0.14);
       }
       needs = true;
       if (game.t < LENGTH + 2.2) requestAnimationFrame(step); else finish();
@@ -543,7 +590,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       for (const it of g.items) {
         up.set(0, 1, 0).applyQuaternion(it.toy.quaternion);
         const moved = Math.hypot(it.toy.position.x - it.start.p.x, it.toy.position.z - it.start.p.z);
-        const stands = it.toy.userData.kind === 'ball' ? moved < 1.2 : up.y > 0.8 && moved < 1.2 && Math.abs(it.toy.position.y - it.start.p.y) < 0.4;
+        const stands = it.toy.userData.kind === 'ball' ? moved < 2 : up.y > 0.8 && moved < 2 && Math.abs(it.toy.position.y - it.start.p.y) < 0.4;
         if (stands) ok++;
       }
       const pct = Math.round((ok / g.items.length) * 100);
@@ -593,7 +640,13 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     needs = true;
   };
   window.addEventListener('resize', size);
-  controls.addEventListener('change', () => { needs = true; });
+  // You can wander around the room, but not lose the carpet.
+  controls.addEventListener('change', () => {
+    const t = controls.target, lx = MAT_W / 2 + 10, lz = MAT_D / 2 + 10;
+    const dx = Math.max(-lx, Math.min(lx, t.x)) - t.x, dz = Math.max(-lz, Math.min(lz, t.z)) - t.z;
+    if (dx || dz || t.y) { camera.position.x += dx; camera.position.z += dz; t.x += dx; t.z += dz; t.y = 0; }
+    needs = true;
+  });
   let saved = null;
   try { saved = JSON.parse(localStorage.getItem(KEY(boardId)) || 'null'); } catch {}
   setCarpet(saved?.carpet || 'town');
@@ -601,11 +654,12 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   if (saved?.toys?.length) for (const t of saved.toys) addToy(t.kind, t, { quiet: true });
   else {
     // A first scene, so the mat isn't empty: a few things to push around.
-    for (const [kind, x, z, r, color] of [['house', -4.6, 2.6, 0, null], ['box', 2.3, -2.4, 0, null], ['box', 4.6, -2.4, 0, '#3d7bff'], ['tree', -6.2, -3.6, 0, null], ['pine', -2.6, -3.9, 0, null], ['car', -1.2, 0, 0, null], ['bus', 4.2, 0, Math.PI, null], ['person', -3.2, 3.9, 0, null], ['person', -2.5, 4.1, 0, '#ff3fa9'], ['block', 6.6, 3.2, 0.4, null], ['letter', 5.4, 3.4, -0.2, null]]) {
+    for (const [kind, x, z, r, color] of [['house', -10.6, 2.8, 0, null], ['house', 7.8, -5.5, 0, '#ffd23f'], ['box', -2.5, -5.7, 0, null], ['box', 0.3, -5.7, 0, '#3d7bff'], ['tree', -6.8, -6.2, 0, null], ['pine', -11.6, -2.3, 0, null], ['tree', 3.9, 6.1, 0, null], ['car', -1, 0, 0, null], ['bus', 9, 0, Math.PI, null], ['truck', -5, 4.6, Math.PI / 2, null], ['person', -8.2, 3, 0, null], ['person', -7.4, 3.3, 0, '#ff3fa9'], ['block', 7.8, 2.8, 0.4, null], ['letter', 10.5, 2.8, -0.2, null]]) {
       addToy(kind, { x, y: 0, z, r, ...(color ? { color } : {}) }, { quiet: true });
     }
   }
   size();
+  camera.position.copy(homeView());
   const loop = () => {
     raf = requestAnimationFrame(loop);
     if (controls.update() || needs) { needs = false; renderer.render(scene, camera); }
