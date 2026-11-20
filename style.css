@@ -73,3 +73,9 @@ button { font: inherit; color: inherit; }
   .pg-result { top: auto; bottom: calc(20px + env(safe-area-inset-bottom, 0px)); transform: translateX(-50%); width: max-content; max-width: calc(100vw - 32px); box-sizing: border-box; padding: 22px 18px 18px; }
   .pg-result strong { font-size: 30px; }
 }
+
+/* Shoo! The one special move during the kid test. */
+#playground .pg-shoo { position: absolute; left: 50%; bottom: 124px; transform: translateX(-50%); height: 56px; padding: 0 34px; border: 0; border-radius: var(--blob); background: var(--accent); color: #fff; font: 700 24px var(--font-display); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); touch-action: manipulation; }
+#playground .pg-shoo:active { transform: translateX(-50%) scale(0.94); }
+#playground .pg-shoo:disabled { opacity: 0.3; cursor: default; }
+@media (max-width: 700px) { #playground .pg-shoo { bottom: calc(28px + env(safe-area-inset-bottom, 0px)); } }

@@ -224,6 +224,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     </div>
     <div class="pg-box"></div>
     <div class="pg-clock" hidden></div>
+    <button class="pg-shoo" title="Scatter the kids for a moment. Once per test. (Space)" hidden>Shoo!</button>
     <div class="pg-result" hidden></div>`;
   document.body.appendChild(el);
 
@@ -452,6 +453,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     if (e.target.closest?.('select, input')) return;
     e.stopPropagation();
     const mod = e.metaKey || e.ctrlKey;
+    if (e.code === 'Space' && game) { e.preventDefault(); shoo(); return; }
     if (e.key === 'Escape') { if (game) return; if (selected) select(null); else if (!standalone) close(); return; }
     if (e.code === 'KeyL' && !mod && selected?.userData.kind !== 'letter') { setLocked(!locked); return; }
     if (!selected || game) return;
@@ -519,7 +521,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     }, 'image/png');
   });
   // ---------- Kid test ----------
-  let game = null;
+  let game = null, shoo = () => {};
   const KID_COLOURS = ['#ff3fa9', '#3d7bff', '#ffd23f', '#ff5a4f', '#3ecf8e', '#ff9a3d'];
   const makeKid = (i) => {
     const g = new THREE.Group();
@@ -582,7 +584,19 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     const LENGTH = 11;   // seconds of mayhem
     const clock = el.querySelector('.pg-clock');
     clock.hidden = false;
-    game = { world, items, kids, t: 0, last: performance.now(), leaving: false };
+    game = { world, items, kids, t: 0, last: performance.now(), leaving: false, shoo: -1 };
+    // Shoo! Your one special move per test: every kid jumps and scatters off the carpet for a moment.
+    const shooBtn = el.querySelector('.pg-shoo');
+    shooBtn.hidden = false; shooBtn.disabled = false;
+    const wave = new THREE.Mesh(new THREE.RingGeometry(0.9, 1, 64), new THREE.MeshBasicMaterial({ color: '#ff3fa9', transparent: true, depthWrite: false }));
+    wave.rotation.x = -Math.PI / 2; wave.position.y = 0.05; wave.visible = false; wave.renderOrder = 5;
+    scene.add(wave);
+    shoo = () => {
+      if (!game || game.leaving || game.shoo >= 0) return;
+      game.shoo = game.t;
+      shooBtn.disabled = true;
+      for (const k of kids) { k.body.velocity.y = 9 + Math.random() * 4; k.target = null; }
+    };
     const tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3();
     const step = () => {
       if (!game) return;
@@ -592,19 +606,24 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       game.t += dt;
       const left = LENGTH - game.t;
       game.leaving = left <= 0;
+      const scared = game.shoo >= 0 && game.t - game.shoo < 1.5, away = game.leaving || scared;
+      if (game.leaving) shooBtn.hidden = true;
+      const w = game.shoo >= 0 ? (game.t - game.shoo) / 0.9 : 2;
+      wave.visible = w < 1;
+      if (w < 1) { wave.scale.setScalar(1 + w * 26); wave.material.opacity = 0.8 * (1 - w); }
       clock.textContent = left > 0 ? `${Math.ceil(left)}` : 'Home time!';
       for (const k of kids) {
         // Pick something to go for, and change your mind often.
-        if (!game.leaving && (!k.target || game.t > k.until)) { k.target = items[Math.floor(Math.random() * items.length)]; k.until = game.t + 2.2 + Math.random() * 2.5; }
+        if (!away && (!k.target || game.t > k.until)) { k.target = items[Math.floor(Math.random() * items.length)]; k.until = game.t + 2.2 + Math.random() * 2.5; }
         let tx, tz;
-        if (game.leaving) { const a = Math.atan2(k.body.position.z, k.body.position.x); tx = Math.cos(a) * 80; tz = Math.sin(a) * 80; }
+        if (away) { const a = Math.atan2(k.body.position.z, k.body.position.x); tx = Math.cos(a) * 80; tz = Math.sin(a) * 80; }
         else { tx = k.target.body.position.x; tz = k.target.body.position.z; }
         const dx = tx - k.body.position.x, dz = tz - k.body.position.z, d = Math.hypot(dx, dz) || 1;
-        const sp = k.speed * (game.leaving ? 1.6 : 1);
+        const sp = k.speed * (scared ? 1.8 : game.leaving ? 1.6 : 1);
         k.body.velocity.x += ((dx / d) * sp - k.body.velocity.x) * Math.min(1, dt * 6);
         k.body.velocity.z += ((dz / d) * sp - k.body.velocity.z) * Math.min(1, dt * 6);
         // Up close: shove it, and now and then jump at it.
-        if (!game.leaving && d < KID_R + 1.2) {
+        if (!away && d < KID_R + 1.2) {
           const push = 5 + Math.random() * 6;
           k.target.body.applyImpulse(new CANNON.Vec3((dx / d) * push * dt * 9, push * dt * 2.5, (dz / d) * push * dt * 9), new CANNON.Vec3(k.body.position.x, k.target.body.position.y + 0.3, k.body.position.z));
           if (Math.random() < dt * 1.6 && k.body.position.y < KID_R + 0.2) k.body.velocity.y = 7 + Math.random() * 4;
@@ -631,6 +650,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       game = null;
       clock.hidden = true;
       for (const k of g.kids) scene.remove(k.mesh);
+      scene.remove(wave); shooBtn.hidden = true;
       // Still standing: upright, and close to where you put it.
       const up = new THREE.Vector3();
       let ok = 0;
@@ -661,6 +681,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     step();
   };
   el.querySelector('[data-a="release"]').addEventListener('click', releaseKids);
+  el.querySelector('.pg-shoo').addEventListener('click', () => shoo());
 
   const close = () => {
     if (game) return;
