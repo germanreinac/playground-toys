@@ -199,7 +199,12 @@ function rideTo(ride) {
 // The toy box is sorted into four drawers.
 const DRAWERS = { Blocks: ['block', 'brick', 'tube', 'cone', 'ball', 'arch', 'ramp', 'letter'], Town: ['box', 'house', 'car', 'truck', 'bus', 'tree', 'pine', 'person'], Cardboard: ['carton', 'cereal', 'shoebox', 'roll'], Fair: ['ferris', 'carousel', 'coaster', 'tent', 'balloons'], Traps: ['jam', 'tramp', 'jar'] };
 // Kid herd mode: what is in the box at the start, and what a round can win you.
-const START_BOX = { block: 6, brick: 4, arch: 1, cone: 2, carton: 3, cereal: 2, shoebox: 2, house: 2, box: 2, tree: 3, pine: 2, car: 2, person: 2, carousel: 1, jam: 1, tramp: 1 };
+const START_BOX = { block: 6, brick: 4, arch: 1, cone: 2, carton: 3, cereal: 1, shoebox: 2, house: 2, box: 1, tree: 3, pine: 2, car: 2, person: 2 };
+// What a toy costs once your box has run out of it. Coins are won in battles.
+const PRICE = { block: 1, brick: 1, tube: 1, cone: 1, ball: 2, arch: 2, ramp: 2, letter: 1, tree: 2, pine: 2, person: 2, car: 3, truck: 4, bus: 4, house: 5, box: 7, carton: 3, cereal: 3, shoebox: 3, roll: 1, jam: 6, tramp: 8, jar: 8, balloons: 4, tent: 8, carousel: 12, ferris: 16, coaster: 18 };
+// The town grows up as more people live in it, and each step makes you stronger in battle.
+const LEVELS = [{ name: 'Hamlet', at: 0 }, { name: 'Village', at: 16, gives: 'traps, and a fourth kick' }, { name: 'Town', at: 30, gives: 'the fair, and the big carpet' }, { name: 'City', at: 48, gives: 'a fifth kick, and the huge carpet' }, { name: 'Metropolis', at: 70, gives: 'a sixth kick' }];
+const DRAWER_LEVEL = { Traps: 1, Fair: 2 }, SIZE_LEVEL = { big: 2, huge: 3 };
 const PRIZES = { common: ['block', 'brick', 'carton', 'cereal', 'shoebox', 'tree', 'pine', 'car', 'person', 'cone', 'tube', 'arch', 'roll'], good: ['house', 'box', 'truck', 'bus', 'tent', 'balloons', 'carousel'], traps: ['jam', 'tramp', 'jar'] };
 // A dice you can seed, so the first town is always the same one.
 const dice = (seed) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
@@ -314,7 +319,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   el.innerHTML = `
     <div class="pg-top">
       <strong>Playground</strong>
-      <span class="pg-mode"><button data-m="free" class="on" title="Build anything, with every toy">Free play</button><button data-m="herd" title="Annoying kids want your toys. A small box, a favourite to protect, and a bigger herd every round">Kid herd</button></span>
+      <span class="pg-mode"><button data-m="free" class="on" title="Build anything, with every toy">Free<i> play</i></button><button data-m="herd" title="Annoying kids want your toys. A small box, a favourite to protect, and a bigger herd every round"><i>Kid </i>Herd</button></span>
       <span class="pg-hint">Pick a toy. Drag toys to move them (they stack). Drag the floor to look around.</span>
       <span class="pg-space"></span>
       <button data-a="lock" title="Lock the toys in place, so you can look around freely (L)">Lock toys</button>
@@ -333,6 +338,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       <button data-a="top">From above</button>
       <button data-a="random" title="Build a whole random town">Random town</button>
       <button data-a="clear">Clear</button>
+      <button data-a="heart" title="Buy back a lost heart">Buy a heart · 15c</button>
       <button data-a="restart" title="Begin kid herd mode again from round 1">Start over</button>
       <button data-a="shot">${addImage ? 'Put on board' : 'Save picture'}</button>
     </div>
@@ -500,7 +506,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     return toy;
   };
   const removeToy = (toy) => {
-    if (mode === 'herd') { herd.box[toy.userData.kind] = (herd.box[toy.userData.kind] || 0) + 1; if (toy === fav) fav = null; showBox(); }   // back in the box
+    if (mode === 'herd') { herd.box[toy.userData.kind] = (herd.box[toy.userData.kind] || 0) + 1; if (toy === fav) fav = null; showBox(); showCensus(); }   // back in the box
     scene.remove(toy);
     toys.splice(toys.indexOf(toy), 1);
     if (selected === toy) select(null);
@@ -516,7 +522,10 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   for (const name of Object.keys(DRAWERS)) {
     const tab = document.createElement('button');
     tab.className = 'pg-tab'; tab.dataset.tab = name; tab.textContent = name;
-    tab.addEventListener('click', () => { drawer = name; openDrawer(name); });
+    tab.addEventListener('click', () => {
+      if (mode === 'herd' && (DRAWER_LEVEL[name] || 0) > herd.level) { const need = LEVELS[DRAWER_LEVEL[name]]; toast(`${name} opens when your town is a ${need.name}: ${need.at} residents.`); return; }
+      drawer = name; showBox();
+    });
     tabRow.appendChild(tab);
   }
   for (const [name, kinds] of Object.entries(DRAWERS)) for (const kind of kinds) {
@@ -524,24 +533,36 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     b.dataset.drawer = name; b.dataset.kind = kind;
     b.innerHTML = `<i style="--c:${def.colour}" data-shape="${kind}"></i><span>${def.label}</span>`;
     b.addEventListener('click', () => {
-      if (mode === 'herd') { if (!(herd.box[kind] > 0)) return; herd.box[kind]--; }
+      if (mode === 'herd') {
+        // From your box if you have one, otherwise bought with coins.
+        if (herd.box[kind] > 0) herd.box[kind]--;
+        else if (herd.coins >= PRICE[kind]) herd.coins -= PRICE[kind];
+        else { toast(`A ${def.label.toLowerCase()} costs ${PRICE[kind]} coins. Win some in a battle.`); return; }
+      }
       addToy(kind);
       showBox();
+      if (mode === 'herd') { growTown(); showRound(); save(); }
     });
     toyRow.appendChild(b);
   }
   // In kid herd mode the box holds only what you own, with how many of each.
-  let drawer = 'Town';
+  let drawer = 'Town', surprise = null;
   const empty = toyRow.appendChild(Object.assign(document.createElement('span'), { className: 'pg-empty', textContent: 'Your box is empty. Release the kids!', hidden: true }));
   const showBox = () => {
-    tabRow.hidden = mode === 'herd';
-    if (mode !== 'herd') { empty.hidden = true; for (const b of toyRow.querySelectorAll('button')) b.querySelector('span').textContent = TOYS[b.dataset.kind].label; openDrawer(drawer); return; }
-    let any = false;
-    for (const b of toyRow.querySelectorAll('button')) { const n = herd.box[b.dataset.kind] || 0; b.hidden = !n; any = any || n > 0; b.querySelector('span').textContent = `${TOYS[b.dataset.kind].label} × ${n}`; }
-    empty.hidden = any;
+    empty.hidden = true;
+    surprise.hidden = mode === 'herd';
+    if (mode === 'herd' && (DRAWER_LEVEL[drawer] || 0) > herd.level) drawer = 'Town';
+    openDrawer(drawer);
+    for (const b of tabRow.querySelectorAll('[data-tab]')) b.classList.toggle('locked', mode === 'herd' && (DRAWER_LEVEL[b.dataset.tab] || 0) > herd.level);
+    for (const b of toyRow.querySelectorAll('button')) {
+      const kind = b.dataset.kind, n = mode === 'herd' ? herd.box[kind] || 0 : 0;
+      b.querySelector('span').textContent = mode !== 'herd' ? TOYS[kind].label : n ? `${TOYS[kind].label} × ${n}` : `${TOYS[kind].label} · ${PRICE[kind]}c`;
+      b.classList.toggle('buy', mode === 'herd' && !n);
+      b.classList.toggle('poor', mode === 'herd' && !n && herd.coins < PRICE[kind]);
+    }
   };
   // Surprise: a random toy, somewhere on the carpet.
-  const surprise = document.createElement('button');
+  surprise = document.createElement('button');
   surprise.className = 'pg-surprise';
   surprise.textContent = 'Surprise!';
   surprise.title = 'A random toy, somewhere on the carpet';
@@ -770,8 +791,28 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   const HOMES = { house: 2, box: 3, carton: 1, cereal: 1, shoebox: 1, tent: 2 };
   let folk = [], folkCheck = 0;
   const census = el.querySelector('.pg-census');
-  const population = () => Math.min(36, toys.reduce((n, t) => n + (HOMES[t.userData.kind] || 0), 0));
-  const clearFolk = () => { for (const f of folk) scene.remove(f.mesh); folk = []; census.hidden = true; };
+  const population = () => toys.reduce((n, t) => n + (HOMES[t.userData.kind] || 0), 0);
+  // The little sign at the top left: who lives here, and in kid herd what the town is and what it is growing into.
+  const showCensus = () => {
+    const n = population(), people = n === 1 ? '1 resident' : `${n} residents`;
+    census.hidden = !n && mode !== 'herd';
+    if (mode !== 'herd') { census.textContent = people; return; }
+    const next = LEVELS[herd.level + 1];
+    census.textContent = `${LEVELS[herd.level].name} · ${people}${next ? ` · ${next.name} at ${next.at}` : ''}`;
+  };
+  // More people, a bigger place. A step up is kept even if homes are lost later.
+  const growTown = () => {
+    if (mode !== 'herd') return;
+    const n = population();
+    while (LEVELS[herd.level + 1] && n >= LEVELS[herd.level + 1].at) {
+      herd.level++;
+      const lv = LEVELS[herd.level];
+      toast(`Your town is now a ${lv.name}! New: ${lv.gives}.`);
+      pop(new THREE.Vector3(0, 5, 0), `${lv.name}!`);
+    }
+    showCensus();
+  };
+  const clearFolk = () => { for (const f of folk) scene.remove(f.mesh); folk = []; };
   const startMotion = (quiet = false) => {
     if (moving || game) return;
     if (state.carpet !== 'town' && !quiet) toast('Cars need the town carpet to find the roads. The rest still moves.');
@@ -824,7 +865,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     // Residents: the right number for the homes there are, each on its own little errand.
     if ((folkCheck -= dt) <= 0) {
       folkCheck = 1.5;
-      const homes = toys.filter((t) => HOMES[t.userData.kind] && t.position.y < 0.05), want = population();
+      const homes = toys.filter((t) => HOMES[t.userData.kind] && t.position.y < 0.05), want = Math.min(30, population());   // no more than thirty walking about at once
       folk = folk.filter((f) => (toys.includes(f.home) && folk.indexOf(f) < want ? true : (scene.remove(f.mesh), false)));
       while (folk.length < want && homes.length) {
         const home = homes[Math.floor(Math.random() * homes.length)], mesh = makeToy('person', { color: COLOURS[Math.floor(Math.random() * 7)], s: 0.62 });
@@ -832,8 +873,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
         scene.add(mesh);
         folk.push({ mesh, home, tx: null, tz: 0, wait: Math.random() * 3, inside: true, phase: Math.random() * 6 });
       }
-      census.hidden = !want;
-      census.textContent = want === 1 ? '1 resident' : `${want} residents`;
+      showCensus();
     }
     for (const f of folk) {
       if (f.tx === null) {
@@ -1076,7 +1116,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     }
     const clock = el.querySelector('.pg-clock');
     clock.hidden = false;
-    game = { world, items, kids, t: 0, last: performance.now(), leaving: false, shoo: -1, kicked: 0, freeze: -1, lure: null, armed: false };
+    game = { world, items, kids, t: 0, last: performance.now(), leaving: false, shoo: -1, kicked: 0, strikes: 0, freeze: -1, lure: null, armed: false };
     const favItem = items.find((it) => it.toy === fav);
     const powers = el.querySelector('.pg-powers'), freezeBtn = powers.querySelector('[data-p="freeze"]'), lureBtn = powers.querySelector('[data-p="lure"]');
     powers.hidden = false; freezeBtn.disabled = false; lureBtn.disabled = false; lureBtn.classList.remove('on');
@@ -1108,7 +1148,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     // skidding low in that direction, knocking out every kid in its way. Your foot needs a moment between kicks.
     const kickBar = el.querySelector('.pg-kick');
     // You only have three kicks, and they come back slowly: one kid at a time will not do it.
-    const KICKS = 3, REFILL = 2.6;
+    const lv = mode === 'herd' ? herd.level : 0, KICKS = 3 + (lv >= 1) + (lv >= 3) + (lv >= 4), REFILL = 2.6;
     game.kicks = KICKS; game.refill = 0;
     const showKicks = () => { kickBar.textContent = `${'●'.repeat(game.kicks)}${'○'.repeat(KICKS - game.kicks)}${game.kicked ? `  ${game.kicked} out` : '  Swipe a kid into the others'}`; kickBar.classList.toggle('wait', !game.kicks); };
     kickBar.hidden = false; showKicks();
@@ -1122,6 +1162,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       Object.assign(k, { fly: true, out: true, bowl: flat, dirx: dx, dirz: dz, chain, flyAt: game.t, spin: (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 6), target: null });
       game.kicked++;
       showKicks();
+      if (chain) game.strikes++;
       pop(head(k), ['Pow!', 'Double!', 'Triple!', 'STRIKE!'][Math.min(3, chain)]);
     };
     kick = (e) => {
@@ -1295,25 +1336,16 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
           res.innerHTML = `<strong>The kids win.</strong><span>${tally}</span><span>You made it to round ${herd.round}${best > herd.round ? `. Your best is round ${best}` : herd.round > 1 ? '. Your best yet!' : ''}</span><div><button data-r="new" class="primary">Play again</button></div>`;
           res.querySelector('[data-r="new"]').addEventListener('click', () => { restore(); res.hidden = true; el.classList.remove('pg-playing'); load('herd', true); herd.best = best; save(); });
         } else {
-          const pick = (list) => list[Math.floor(Math.random() * list.length)], offers = [], want = favOk ? 2 : 1;
-          if (herd.hearts < 3 && Math.random() < 0.4) offers.push({ kind: 'heart', n: 1 });
-          while (offers.length < (favOk ? 4 : 3)) {
-            const roll = Math.random(), kind = pick(roll < (favOk ? 0.3 : 0.15) ? PRIZES.traps : roll < 0.6 ? PRIZES.good : PRIZES.common);
-            if (!offers.some((o) => o.kind === kind)) offers.push({ kind, n: PRIZES.common.includes(kind) ? (pct >= 50 ? 4 : 3) : PRIZES.good.includes(kind) ? 2 : 1 });
-          }
-          const name = (o) => (o.kind === 'heart' ? '♥ One more heart' : `${TOYS[o.kind].label}${o.n > 1 ? ` × ${o.n}` : ''}`);
-          res.innerHTML = `<strong>${favOk ? 'Your favourite made it!' : 'They got your favourite.'}</strong><span>${tally}${herd.streak > 1 ? `. ${herd.streak} rounds safe in a row` : ''}</span><em>Pick ${want === 2 ? 'two things' : 'one thing'} for your box</em><div>${offers.map((o, i) => `<button data-o="${i}">${name(o)}</button>`).join('')}</div>`;
-          let picked = 0;
-          res.querySelectorAll('[data-o]').forEach((b) => b.addEventListener('click', () => {
-            const o = offers[+b.dataset.o];
-            if (b.disabled) return;
-            b.disabled = true; b.classList.add('primary');
-            if (o.kind === 'heart') herd.hearts++; else herd.box[o.kind] = (herd.box[o.kind] || 0) + o.n;
-            if (++picked < want) return;
+          // Coins for how well you fought. They buy the town its next pieces.
+          const pay = [[favOk ? 6 : 0, 'favourite safe'], [g.kicked, 'kids kicked out'], [g.strikes * 2, g.strikes === 1 ? 'strike' : 'strikes'], [Math.floor(ok / 2), 'toys standing'], [2 + herd.round, 'for turning up']].filter(([n]) => n > 0);
+          const won = pay.reduce((n, [c]) => n + c, 0);
+          herd.coins += won;
+          res.innerHTML = `<strong>${favOk ? 'Your favourite made it!' : 'They got your favourite.'}</strong><span>${tally}${herd.streak > 1 ? `. ${herd.streak} rounds safe in a row` : ''}</span><em>+ ${won} coins</em><span class="pg-pay">${pay.map(([n, what]) => `${n} ${what}`).join(' · ')}</span><div><button data-r="next" class="primary">Build some more</button></div>`;
+          res.querySelector('[data-r="next"]').addEventListener('click', () => {
             herd.round++;
             restore(); showBox(); showRound(); done();
-            toast(`Round ${herd.round}: ${herdKids()} kids are coming. Get ready.`);
-          }));
+            toast(`You have ${herd.coins} coins to spend. Round ${herd.round} brings ${herdKids()} kids.`);
+          });
         }
         showRound();
       } else {
@@ -1371,14 +1403,18 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   });
   // ---------- Free play and kid herd ----------
   // Two towns, kept apart: the one you build freely, and the one you defend round after round.
-  const herdKids = () => Math.min(40, Math.round((4 + 3 * herd.round) * Math.sqrt((MAT_W * MAT_D) / 1350)));   // more of them every round, and on a bigger carpet
+  const herdKids = () => Math.min(40, Math.round((1 + 3 * herd.round) * Math.sqrt((MAT_W * MAT_D) / 1350)));   // more of them every round, and on a bigger carpet
   const showRound = () => {
     const on = mode === 'herd';
     el.classList.toggle('pg-herd', on);
     el.querySelector('[data-a="kids"]').hidden = on;
     const label = el.querySelector('.pg-round');
     label.hidden = !on;
-    if (on) label.textContent = `Round ${herd.round} · ${herdKids()} kids · ${'♥'.repeat(Math.max(0, herd.hearts))}`;
+    if (on) label.textContent = `Round ${herd.round} · ${herdKids()} kids · ${'♥'.repeat(Math.max(0, herd.hearts))} · ${herd.coins}c`;
+    for (const o of el.querySelectorAll('[data-a="size"] option')) o.disabled = on && (SIZE_LEVEL[o.value] || 0) > herd.level;
+    const heartBtn = el.querySelector('[data-a="heart"]');
+    heartBtn.disabled = !on || herd.hearts >= 3 || herd.coins < 15;
+    showCensus();
     for (const b of el.querySelectorAll('[data-m]')) b.classList.toggle('on', b.dataset.m === mode);
   };
   const load = (m, fresh = false) => {
@@ -1388,8 +1424,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     mode = m;
     let saved = null;
     if (!fresh) try { saved = JSON.parse(localStorage.getItem(KEY(boardId, m)) || 'null'); } catch {}
-    herd = m === 'herd' ? saved?.herd || { round: 1, box: { ...START_BOX }, streak: 0, best: 0, hearts: 3 } : null;
+    herd = m === 'herd' ? saved?.herd || { round: 1, box: { ...START_BOX }, streak: 0, best: 0, hearts: 3, coins: 10, level: 0 } : null;
     if (herd && !(herd.hearts > 0)) herd.hearts = 3;
+    if (herd) { herd.coins ??= 10; herd.level ??= 0; }
     state.carpet = m === 'herd' ? 'town' : saved?.carpet || 'town';
     setSize(saved?.size || 'medium');
     el.querySelector('[data-a="carpet"]').value = state.carpet;
@@ -1397,7 +1434,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     if (saved && !saved.v) { for (const t of saved.toys || []) { t.x *= PATTERN; t.z *= PATTERN; } }   // saved when the picture was smaller: spread out to match
     if (saved?.toys?.length) for (const t of saved.toys) addToy(t.kind, t, { quiet: true });
     else if (m === 'free' && !saved) buildTown(dice(4));   // a first town, so the mat isn't empty (always the same one)
-    if (m === 'herd') fav = toys[saved?.fav] || null;
+    if (m === 'herd') { fav = toys[saved?.fav] || null; growTown(); }
     showBox(); showRound();
     startMotion(true);   // the town is alive unless you stop it
     camera.position.copy(homeView()); controls.target.set(0, 0, 0.5); controls.update();
@@ -1408,8 +1445,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     save();
     load(b.dataset.m);
     save();
-    if (mode === 'herd' && herd.round === 1 && !toys.length) toast('Annoying kids want your toys. Build, pick a favourite, then kick them out.');
+    if (mode === 'herd' && herd.round === 1 && !toys.length) toast('Annoying kids want your toys. Build a town, pick a favourite, then fight them off. Battles win coins, coins grow the town.');
   });
+  el.querySelector('[data-a="heart"]').addEventListener('click', () => { if (mode !== 'herd' || herd.hearts >= 3 || herd.coins < 15) return; herd.coins -= 15; herd.hearts++; showRound(); showBox(); save(); });
   const restartBtn = el.querySelector('[data-a="restart"]');
   let restartTimer = 0;
   const restartRest = () => { clearTimeout(restartTimer); restartBtn.textContent = 'Start over'; restartBtn.classList.remove('on'); };

@@ -130,7 +130,7 @@ button { font: inherit; color: inherit; }
 #playground.pg-herd [data-a="restart"] { display: block; }
 #playground.pg-herd .pg-more [data-a="carpet"], #playground.pg-herd .pg-more [data-a="random"], #playground.pg-herd .pg-more [data-a="clear"],
 #playground.pg-herd [data-s="copy"], #playground.pg-herd [data-s="smaller"], #playground.pg-herd [data-s="bigger"] { display: none; }
-.pg-tabs[hidden] { display: none; }
+.pg-tabs[hidden], #playground .pg-box .pg-surprise[hidden] { display: none; }
 .pg-empty { padding: 0 10px; font: 500 12.5px var(--font-second); color: var(--text); line-height: 34px; white-space: nowrap; }
 .pg-result em { font: 600 12px var(--font-second); font-style: normal; color: var(--text); text-transform: uppercase; letter-spacing: 0.06em; margin-top: 6px; }
 .pg-result div { flex-wrap: wrap; justify-content: center; }
@@ -171,3 +171,28 @@ button { font: inherit; color: inherit; }
 .pg-census[hidden], #playground.pg-playing .pg-census, #playground.pg-walking .pg-census { display: none; }
 @media (max-width: 700px) { .pg-census { left: 12px; top: 108px; } }
 .pg-kick { letter-spacing: 0.02em; }
+
+/* Kid herd: the toy box is also the shop. */
+#playground .pg-box button.buy { border-style: dashed; }
+#playground .pg-box button.poor { opacity: 0.45; }
+#playground .pg-box .pg-tab.locked { opacity: 0.4; }
+#playground [data-a="heart"] { display: none; }
+#playground.pg-herd [data-a="heart"] { display: block; }
+#playground .pg-more button:disabled { opacity: 0.35; cursor: default; }
+.pg-result em { color: var(--accent); font-size: 18px; letter-spacing: 0; text-transform: none; }
+.pg-result .pg-pay { font-size: 12.5px; color: var(--text); max-width: 340px; }
+
+.pg-mode i { font-style: normal; }
+/* On a phone the top bar is two rows of buttons; the round, hearts and coins sit on a line of their own below it. */
+@media (max-width: 700px) {
+  .pg-mode i { display: none; }
+  #playground .pg-top [data-a="kids"] { max-width: 118px; }
+  #playground .pg-top [data-a="release"] { order: 5; }
+  #playground .pg-top [data-a="more"] { order: 6; }
+  #playground .pg-top [data-a="kids"] { order: 4; }
+  .pg-round { position: absolute; left: 4px; top: 100%; margin-top: 8px; padding: 3px 12px; border-radius: var(--blob-s); background: var(--overlay); border: 1px solid var(--panel-border); font-size: 12px; }
+  .pg-census { top: 106px; }
+  #playground.pg-herd .pg-census { top: 138px; }
+  #toast { top: 176px; }
+  #playground.pg-playing .pg-round { display: none; }
+}
