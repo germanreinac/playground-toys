@@ -210,3 +210,11 @@ button { font: inherit; color: inherit; }
 #playground .pg-foot[hidden] { display: none; }
 #playground .pg-foot:active { transform: scale(0.92); }
 @media (pointer: coarse) { #playground .pg-foot { bottom: calc(262px + env(safe-area-inset-bottom, 0px)); right: 16px; width: 84px; height: 84px; } }
+
+#playground .pg-top [data-a="rebuild"] { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 700px) { #playground .pg-top [data-a="rebuild"] { order: 5; } }
+
+.pg-walkbar { flex-wrap: wrap; justify-content: flex-start; }
+.pg-walkbar [data-w="release"] { margin-left: auto; }
+.pg-walkbar [data-w="ride"] { border-color: var(--accent); color: var(--accent); }
+#playground .pg-walkbar button[hidden] { display: none; }

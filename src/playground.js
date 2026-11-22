@@ -329,6 +329,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       <select data-a="kids" title="How many kids"><option value="3">A few kids</option><option value="6" selected>A class of kids</option><option value="10">Far too many kids</option></select>
       <span class="pg-round" hidden></span>
       <button data-a="release" class="primary">Release the kids!</button>
+      <button data-a="rebuild" title="Put everything back the way you built it" hidden>Rebuild</button>
       <i class="pg-div"></i>
       <button data-a="go" title="Set the town moving: cars drive, people stroll, the fair turns">Go!</button>
       <button data-a="walk" title="Walk around inside your town">Walk</button>
@@ -364,7 +365,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     <div class="pg-walk" hidden>
       <i class="pg-stick" data-stick="L"><b></b></i><i class="pg-stick" data-stick="R"><b></b></i>
     </div>
-    <div class="pg-walkbar" hidden><button data-w="exit" title="Back to building (Esc)">Back to building</button><button data-w="release" class="primary">Release the kids!</button></div>
+    <div class="pg-walkbar" hidden><button data-w="exit" title="Back to building (Esc)">Build</button><button data-w="view" title="See yourself from behind, or through your own eyes (V)">View</button><button data-w="ride" hidden>Ride</button><button data-w="release" class="primary">Release the kids!</button></div>
     <button class="pg-foot" title="Kick whoever is in front of you. Nobody there? Punt the nearest toy. (F)" hidden>Kick</button>
     <div class="pg-result" hidden></div>`;
   document.body.appendChild(el);
@@ -541,21 +542,33 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     const def = TOYS[kind], b = document.createElement('button');
     b.dataset.drawer = name; b.dataset.kind = kind;
     b.innerHTML = `<i style="--c:${def.colour}" data-shape="${kind}"></i><span>${def.label}</span>`;
+    // Pick a toy up and it stays in your hand: every tap on the carpet puts one down, until you tap the toy again.
     b.addEventListener('click', () => {
-      if (mode === 'herd') {
-        // From your box if you have one, otherwise bought with coins.
-        if (herd.box[kind] > 0) herd.box[kind]--;
-        else if (herd.coins >= PRICE[kind]) herd.coins -= PRICE[kind];
-        else { toast(`A ${def.label.toLowerCase()} costs ${PRICE[kind]} coins. Win some in a battle.`); return; }
-      }
-      addToy(kind);
+      hand = hand === kind ? null : kind;
+      if (hand) { select(null); if (!taught) { taught = true; toast('Tap the carpet to put it down, as many as you like. Tap the toy again when you are done.'); } }
       showBox();
-      if (mode === 'herd') { growTown(); showRound(); save(); }
     });
     toyRow.appendChild(b);
   }
   // In kid herd mode the box holds only what you own, with how many of each.
-  let drawer = 'Town', surprise = null;
+  let drawer = 'Town', surprise = null, hand = null, taught = false, tap = null;
+  const placeAt = (x, z) => {
+    const kind = hand, def = TOYS[kind];
+    if (mode === 'herd') {
+      // From your box if you have one, otherwise bought with coins.
+      if (herd.box[kind] > 0) herd.box[kind]--;
+      else if (herd.coins >= PRICE[kind]) herd.coins -= PRICE[kind];
+      else { toast(`A ${def.label.toLowerCase()} costs ${PRICE[kind]} coins. Win some in a battle.`); hand = null; showBox(); return; }
+    }
+    const toy = addToy(kind, { x, y: 0, z, r: 0 }, { quiet: true });
+    toy.position.y = restingHeight(toy, x, z);
+    plop(toy);
+    if (HOMES[kind]) { const n = homeLife(toy).n; pop(new THREE.Vector3(x, toy.position.y + 2.4, z), `${n} ${n === 1 ? 'resident' : 'residents'}`); }
+    showBox(); showCensus();
+    if (mode === 'herd') { growTown(); showRound(); }
+    needs = true;
+    save();
+  };
   const empty = toyRow.appendChild(Object.assign(document.createElement('span'), { className: 'pg-empty', textContent: 'Your box is empty. Release the kids!', hidden: true }));
   const showBox = () => {
     empty.hidden = true;
@@ -566,6 +579,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     for (const b of toyRow.querySelectorAll('button')) {
       const kind = b.dataset.kind, n = mode === 'herd' ? herd.box[kind] || 0 : 0;
       b.querySelector('span').textContent = mode !== 'herd' ? TOYS[kind].label : n ? `${TOYS[kind].label} × ${n}` : `${TOYS[kind].label} · ${PRICE[kind]}c`;
+      b.classList.toggle('on', kind === hand);
       b.classList.toggle('buy', mode === 'herd' && !n);
       b.classList.toggle('poor', mode === 'herd' && !n && herd.coins < PRICE[kind]);
     }
@@ -641,8 +655,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   window.addEventListener('pointerup', onKickUp, true);
   cv.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || game || locked || fingers.size > 1) return;
+    tap = { x: e.clientX, y: e.clientY, t: performance.now(), id: e.pointerId };
     const toy = toyAt(e);
-    select(toy);
+    select(hand ? null : toy);   // with a toy in your hand, a tap builds; it does not pick things
     if (!toy) return;
     // Slide it along the height it's standing at, keeping it under the mouse.
     floor.constant = -toy.position.y;
@@ -677,6 +692,18 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     plop(toy);
     save();
   };
+  cv.addEventListener('pointerup', (e) => {
+    // A quick tap with a toy in your hand: put one down right there, on the carpet or on top of what is there.
+    const t = tap;
+    tap = null;
+    if (!hand || !t || t.id !== e.pointerId || game || locked) return;
+    if (Math.hypot(e.clientX - t.x, e.clientY - t.y) > 8 || performance.now() - t.t > 450) return;
+    aim(e);
+    const on = ray.intersectObjects(toys, true)[0];
+    floor.constant = 0;
+    if (on) placeAt(on.point.x, on.point.z);
+    else if (ray.ray.intersectPlane(floor, hit)) placeAt(hit.x, hit.z);
+  });
   cv.addEventListener('pointerup', drop);
   cv.addEventListener('pointercancel', drop);
 
@@ -688,11 +715,14 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       if (e.key === 'Escape') exitWalk();
       else if (e.code === 'Space' && game) { e.preventDefault(); shoo(); }
       else if (e.code === 'KeyF' && game) footKick();
+      else if (e.code === 'KeyV') setView();
+      else if (e.code === 'KeyE' && !game) hop();
       else { walkKeys.add(e.code); if (e.key.startsWith('Arrow')) e.preventDefault(); }
       return;
     }
     const mod = e.metaKey || e.ctrlKey;
     if (e.code === 'Space' && game) { e.preventDefault(); shoo(); return; }
+    if (e.key === 'Escape' && hand) { hand = null; showBox(); return; }
     if (e.key === 'Escape') { if (game) return; if (selected) select(null); else if (!standalone) close(); return; }
     if (e.code === 'KeyL' && !mod && selected?.userData.kind !== 'letter') { setLocked(!locked); return; }
     if (!selected || game) return;
@@ -902,7 +932,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       if (m.spin) for (const q of m.spin) q.o.rotation[q.a] += q.v * dt;
       if (m.ride) { const r = m.ride, y = r.curve.getPointAt(r.t).y; r.t = (r.t + ((1.6 + (2.6 - y) * 1.5) * dt) / r.length) % 1; rideTo(r); }   // faster downhill
       if (t === drag?.toy) continue;
-      if (u.broken) continue;
+      if (u.broken || u.driven) continue;
       const drives = DRIVES[kind] && net, strolls = kind === 'person';
       if (!drives && !strolls) continue;
       if (!u.mv) { if (t.position.y > 0.05) continue; u.mv = { home: { p: t.position.clone(), r: t.rotation.y }, to: null, from: null, tx: null, wait: Math.random() * 2 }; }
@@ -1022,16 +1052,19 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     select(null); setMore(false);
     const dir = camera.getWorldDirection(new THREE.Vector3());
     walk = { x: Math.max(-MAT_W / 2, Math.min(MAT_W / 2, controls.target.x)), z: Math.max(-MAT_D / 2, Math.min(MAT_D / 2, controls.target.z)), yaw: Math.atan2(-dir.x, -dir.z), pitch: 0, look: null, last: performance.now(), fresh: true, back: { p: camera.position.clone(), t: controls.target.clone(), fov: camera.fov } };
+    Object.assign(walk, { third: true, ride: null, near: null, stun: 0, safe: 0, y: 0 });
     controls.enabled = false;
-    camera.fov = 62; camera.updateProjectionMatrix();
+    camera.fov = 50; camera.updateProjectionMatrix();
     el.classList.add('pg-walking');
     walkPad.hidden = false; walkBar.hidden = false;
-    toast(matchMedia('(pointer: coarse)').matches ? 'Left thumb walks, right thumb looks around.' : 'W A S D to walk, drag to look around. Esc to go back.');
+    toast(matchMedia('(pointer: coarse)').matches ? 'You are a toy now. Left thumb walks, right thumb looks around.' : 'You are a toy now. W A S D to walk, drag to look around, V to change the view.');
   };
   const exitWalk = () => {
     if (!walk) return;
+    if (walk.ride) hop();
     const b = walk.back;
     walk = null; walkKeys.clear();
+    self.visible = false; rideBtn.hidden = true;
     for (const st of Object.values(sticks)) { st.id = null; st.x = st.y = 0; drawStick(st); }
     camera.fov = b.fov; camera.updateProjectionMatrix();
     camera.position.copy(b.p); controls.target.copy(b.t);
@@ -1040,6 +1073,39 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     walkPad.hidden = true; walkBar.hidden = true;
     needs = true;
   };
+  // Your toy self: a peg person with a crown, seen from behind unless you switch to its eyes.
+  const self = makeToy('person', { color: '#ff3fa9' });
+  self.add(part(new THREE.CylinderGeometry(0.2, 0.15, 0.16, 6), lambert('#ffd23f'), 0, 1.3, 0));
+  self.visible = false;
+  scene.add(self);
+  const rideBtn = walkBar.querySelector('[data-w="ride"]'), SEATS = ['coaster', 'ferris', 'carousel'], tmpSeat = new THREE.Vector3();
+  // Hop on what you are standing next to: drive a car, or take a seat on a ride. The same button hops off.
+  const hop = () => {
+    if (!walk || game) return;
+    if (walk.ride) {
+      const r = walk.ride;
+      walk.ride = null;
+      if (r.type === 'drive') { delete r.toy.userData.driven; save(); }
+      walk.x += Math.cos(walk.yaw) * 2.2; walk.z -= Math.sin(walk.yaw) * 2.2; walk.y = 0;   // step out to the side
+      walk.fresh = true;
+      return;
+    }
+    const t = walk.near;
+    if (!t) return;
+    if (DRIVES[t.userData.kind]) {
+      delete t.userData.mv; t.userData.driven = true;   // it is yours now, not part of the traffic
+      walk.ride = { type: 'drive', toy: t };
+      walk.x = t.position.x; walk.z = t.position.z;
+    } else {
+      const m = t.userData.paint.userData, kind = t.userData.kind;
+      walk.ride = { type: 'seat', toy: t, obj: kind === 'coaster' ? m.ride.cars[0].car : kind === 'ferris' ? m.spin[0].o : m.spin[0].o.children[4] };
+      if (!moving) startMotion(true);
+    }
+    walk.fresh = true;
+  };
+  rideBtn.addEventListener('click', hop);
+  const setView = () => { if (!walk) return; walk.third = !walk.third; camera.fov = walk.third ? 50 : 62; camera.updateProjectionMatrix(); walk.fresh = true; };
+  walkBar.querySelector('[data-w="view"]').addEventListener('click', setView);
   const walkStep = (now) => {
     const dt = Math.min(0.05, (now - walk.last) / 1000);
     walk.last = now;
@@ -1048,22 +1114,53 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     const lx = sticks.R.x + k('ArrowRight') - k('ArrowLeft'), ly = sticks.R.y;
     const m = Math.hypot(mx, my);
     if (m > 1) { mx /= m; my /= m; }
+    const stunned = !!game && walk.stun > game.t, ride = walk.ride, seat = ride?.type === 'seat';
+    if (stunned || seat) { mx = 0; my = 0; }   // knocked flat, or sitting on a ride: your legs are not in charge
     if (!mx && !my) { walk.vx = 0; walk.vz = 0; }
-    if (!mx && !my && !lx && !ly && !walk.fresh) return false;
+    if (!mx && !my && !lx && !ly && !walk.fresh && !seat && !stunned) return false;
     walk.fresh = false;
     walk.yaw -= lx * 2.3 * dt;
     walk.pitch = Math.max(-1.2, Math.min(1.2, walk.pitch - ly * 1.5 * dt));
-    const sp = (k('ShiftLeft', 'ShiftRight') ? 10 : 5) * dt, sin = Math.sin(walk.yaw), cos = Math.cos(walk.yaw);
-    if (game?.me) {
+    const sin = Math.sin(walk.yaw), cos = Math.cos(walk.yaw), gx = sin * my + cos * mx, gz = cos * my - sin * mx;
+    if (seat) { ride.obj.getWorldPosition(tmpSeat); walk.x = tmpSeat.x; walk.z = tmpSeat.z; walk.y = tmpSeat.y; }
+    else if (game?.me) {
       // In a battle you are a small body among giants: you run faster, and you bump into things.
       const v = k('ShiftLeft', 'ShiftRight') ? 11 : 7.5;
-      walk.vx = (sin * my + cos * mx) * v; walk.vz = (cos * my - sin * mx) * v;
+      walk.vx = gx * v; walk.vz = gz * v; walk.y = 0;
     } else {
-      walk.x = Math.max(-MAT_W / 2 - 12, Math.min(MAT_W / 2 + 12, walk.x + (sin * my + cos * mx) * sp));
-      walk.z = Math.max(-MAT_D / 2 - 12, Math.min(MAT_D / 2 + 12, walk.z + (cos * my - sin * mx) * sp));
+      const v = (ride ? 12 : k('ShiftLeft', 'ShiftRight') ? 10 : 5) * dt;
+      walk.x = Math.max(-MAT_W / 2 - 12, Math.min(MAT_W / 2 + 12, walk.x + gx * v));
+      walk.z = Math.max(-MAT_D / 2 - 12, Math.min(MAT_D / 2 + 12, walk.z + gz * v));
+      walk.y = 0;
+      if (ride && (mx || my)) {
+        // Driving: the car goes where you go, and turns its nose that way.
+        const t = ride.toy;
+        t.position.set(walk.x, 0, walk.z);
+        let turn = Math.atan2(-gz, gx) - t.rotation.y;
+        turn = Math.atan2(Math.sin(turn), Math.cos(turn));
+        t.rotation.y += turn * Math.min(1, dt * 9);
+      }
     }
-    camera.position.set(walk.x, EYE, walk.z);
-    camera.rotation.set(walk.pitch, walk.yaw, 0, 'YXZ');
+    self.visible = walk.third && !ride;
+    self.position.set(walk.x, walk.y + (mx || my ? Math.abs(Math.sin(now / 90)) * 0.09 : 0), walk.z);
+    self.rotation.set(stunned ? Math.PI / 2 : 0, walk.yaw, 0);   // flat on your back when a kid runs you over
+    if (walk.third) {
+      // From behind and a little above; looking up or down swings the camera lower or higher.
+      const dist = seat ? 7.5 : ride ? 6.5 : 4.8, lift = Math.max(0.06, Math.min(1.35, 0.36 - walk.pitch));
+      camera.position.set(walk.x + sin * Math.cos(lift) * dist, walk.y + 1.1 + Math.sin(lift) * dist, walk.z + cos * Math.cos(lift) * dist);
+      camera.lookAt(walk.x, walk.y + 1.1, walk.z);
+    } else {
+      camera.position.set(walk.x, walk.y + (seat ? 0.6 : ride ? 0.95 : EYE), walk.z);
+      camera.rotation.set(walk.pitch, walk.yaw, stunned ? Math.sin(now / 60) * 0.25 : 0, 'YXZ');
+    }
+    // Is there something here to get on?
+    walk.near = null;
+    if (!game && !ride) {
+      let best = 3.6;
+      for (const t of toys) { if (t.userData.broken || t.position.y > 0.05 || !(DRIVES[t.userData.kind] || SEATS.includes(t.userData.kind))) continue; const d = Math.hypot(t.position.x - walk.x, t.position.z - walk.z) - (SEATS.includes(t.userData.kind) ? 1.8 : 0); if (d < best) { best = d; walk.near = t; } }
+    }
+    rideBtn.hidden = !!game || (!ride && !walk.near);
+    if (!rideBtn.hidden) rideBtn.textContent = ride ? 'Hop off' : DRIVES[walk.near.userData.kind] ? 'Drive' : 'Ride';
     return true;
   };
   walkPad.addEventListener('pointerdown', (e) => {
@@ -1102,6 +1199,16 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   walkBar.querySelector('[data-w="release"]').addEventListener('click', () => releaseKids());
 
   // ---------- Kid test ----------
+  let lastBuild = null;
+  const rebuildBtn = el.querySelector('[data-a="rebuild"]');
+  rebuildBtn.addEventListener('click', () => {
+    stopMotion();
+    for (const b of lastBuild || []) if (toys.includes(b.toy)) { b.toy.position.copy(b.p); b.toy.quaternion.copy(b.q); }
+    rebuildBtn.hidden = true;
+    select(null); startMotion(true);
+    needs = true;
+    save();
+  });
   let game = null, shoo = () => {}, kick = () => false, kickUp = () => {}, footKick = () => {};
   el.querySelector('.pg-foot').addEventListener('click', () => footKick());
   const KID_COLOURS = ['#ff3fa9', '#3d7bff', '#ffd23f', '#ff5a4f', '#3ecf8e', '#ff9a3d'];
@@ -1133,6 +1240,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     if (mode === 'herd' && !fav) { toast('Tap the toy you love most and make it your favourite.'); return; }
     if (mode === 'herd' && fav.userData.broken) { toast('Your favourite is broken. Mend it, or choose another.'); return; }
     const rent = mode === 'herd' ? Math.floor(population() / 4) : 0;
+    if (walk?.ride) hop();
+    if (walk) { walk.stun = 0; walk.safe = 0; }
     const wasAlive = moving;
     stopMotion();
     setMore(false);
@@ -1171,6 +1280,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       return { toy, body, centre, start };
     });
     const lures = items.filter((it) => it.toy.userData.kind === 'jar');
+    lastBuild = items.map((it) => ({ toy: it.toy, p: it.start.p.clone(), q: it.start.q.clone() }));
+    rebuildBtn.hidden = true; hand = null; showBox();
     const LENGTH = mode === 'herd' ? 16 : 11;   // seconds of mayhem
     // The kids come in from every side of the carpet.
     const count = mode === 'herd' ? herdKids() : Math.round((Number(el.querySelector('[data-a="kids"]').value) || 6) * Math.sqrt((MAT_W * MAT_D) / 1350));   // more kids for a bigger carpet
@@ -1294,7 +1405,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     let lastPunt = -9;
     const ahead = (x, z, far) => { const dx = x - walk.x, dz = z - walk.z, d = Math.hypot(dx, dz) || 1; return d > far ? 9 : Math.acos(Math.max(-1, Math.min(1, (dx * -Math.sin(walk.yaw) + dz * -Math.cos(walk.yaw)) / d))); };
     footKick = () => {
-      if (!game || game.leaving || !walk) return;
+      if (!game || game.leaving || !walk || walk.stun > game.t) return;
       const fx = -Math.sin(walk.yaw), fz = -Math.cos(walk.yaw);
       let kid = null, best = 0.75;
       for (const k of kids) { if (!k.in || k.out || k.fly) continue; const a = ahead(k.body.position.x, k.body.position.z, REACH); if (a < best) { best = a; kid = k; } }
@@ -1406,7 +1517,15 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       if (game.me) { game.me.velocity.x = walk.vx || 0; game.me.velocity.z = walk.vz || 0; }
       footBtn.hidden = !walk || game.leaving;
       world.step(1 / 60, dt, 3);
-      if (game.me && walk) { walk.x = game.me.position.x; walk.z = game.me.position.z; walk.fresh = true; }
+      if (game.me && walk) {
+        walk.x = game.me.position.x; walk.z = game.me.position.z; walk.fresh = true;
+        // A running kid that reaches you bowls you over for a moment.
+        if (game.t > walk.safe && !game.leaving) for (const q of kids) if (q.in && !q.out && !q.fly && !q.still && Math.hypot(q.body.position.x - walk.x, q.body.position.z - walk.z) < KID_R + 0.85 && Math.hypot(q.body.velocity.x, q.body.velocity.z) > 2.5) {
+          walk.stun = game.t + 1.1; walk.safe = game.t + 2.8;
+          pop(new THREE.Vector3(walk.x, 2.2, walk.z), 'Ouch!'); shake();
+          break;
+        }
+      }
       for (const it of items) {
         tmpQ.set(it.body.quaternion.x, it.body.quaternion.y, it.body.quaternion.z, it.body.quaternion.w);
         tmpV.copy(it.centre).applyQuaternion(tmpQ);
@@ -1465,20 +1584,18 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
           const pay = [[favOk ? 6 : 0, 'favourite safe'], [g.kicked, 'kids kicked out'], [g.strikes * 2, g.strikes === 1 ? '1 strike' : `${g.strikes} strikes`], [Math.floor(ok / 2), 'toys standing'], [rent, 'rent'], [2 + herd.round, 'for turning up']].filter(([n]) => n > 0);
           const won = pay.reduce((n, [c]) => n + c, 0);
           herd.coins += won;
-          res.innerHTML = `<strong>${favOk ? 'Your favourite made it!' : 'They got your favourite.'}</strong><span>${tally}${herd.streak > 1 ? `. ${herd.streak} rounds safe in a row` : ''}</span><em>+ ${won} coins</em><span class="pg-pay">${pay.map(([n, what]) => `${what} +${n}`).join(' · ')}</span><div><button data-r="next" class="primary">Build some more</button></div>`;
+          res.innerHTML = `<strong>${favOk ? 'Your favourite made it!' : 'They got your favourite.'}</strong><span>${tally}${herd.streak > 1 ? `. ${herd.streak} rounds safe in a row` : ''}</span><em>+ ${won} coins</em><span class="pg-pay">${pay.map(([n, what]) => `${what} +${n}`).join(' · ')}</span><div><button data-r="next" class="primary">Rebuild and carry on</button></div>`;
           res.querySelector('[data-r="next"]').addEventListener('click', () => {
             herd.round++;
-            // Everything goes back where it stood, but what the kids knocked over is now broken.
+            // Everything goes back the way you built it.
             restore();
-            const wrecked = g.items.filter((it) => it.stands === false && !it.toy.userData.broken);
-            for (const it of wrecked) breakToy(it.toy);
             showBox(); showRound(); showRepair(); done();
-            toast(wrecked.length ? `${wrecked.length} toys are broken and need mending. You have ${herd.coins} coins.` : `Nothing broken! You have ${herd.coins} coins to spend.`);
+            toast(`Rebuilt. You have ${herd.coins} coins to spend. Round ${herd.round} brings ${herdKids()} kids.`);
           });
         }
         showRound();
       } else {
-        res.innerHTML = `<strong>${verdict}</strong><span>${ok} of ${total} toys still standing (${pct}%)${g.kicked ? `, ${g.kicked} kids kicked out` : ''}</span><div><button data-r="back" class="primary">Put it back</button><button data-r="keep">Keep the mess</button><button data-r="again">Again!</button></div>`;
+        res.innerHTML = `<strong>${verdict}</strong><span>${ok} of ${total} toys still standing (${pct}%)${g.kicked ? `, ${g.kicked} kids kicked out` : ''}</span><div><button data-r="back" class="primary">Rebuild</button><button data-r="keep">Keep the mess</button><button data-r="again">Again!</button></div>`;
         res.querySelector('[data-r="back"]').addEventListener('click', () => { restore(); done(); });
         res.querySelector('[data-r="again"]').addEventListener('click', () => { restore(); done(); releaseKids(); });
         res.querySelector('[data-r="keep"]').addEventListener('click', () => {
@@ -1487,6 +1604,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
           for (const it of g.items) it.toy.position.y = restingHeight(it.toy, it.toy.position.x, it.toy.position.z);
           needs = true;
           done();
+          rebuildBtn.hidden = false;   // changed your mind? One tap rebuilds it
         });
       }
       needs = true;
@@ -1550,6 +1668,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     stopMotion();
     for (const t of [...toys]) scene.remove(t);
     toys.length = 0; fav = null; select(null);
+    hand = null; lastBuild = null; rebuildBtn.hidden = true;
     mode = m;
     let saved = null;
     if (!fresh) try { saved = JSON.parse(localStorage.getItem(KEY(boardId, m)) || 'null'); } catch {}
