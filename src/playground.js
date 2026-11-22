@@ -21,7 +21,8 @@ const CARD = '#c8a06a';   // plain cardboard
 const COLOURS = ['#ff3fa9', '#3d7bff', '#ffd23f', '#ff5a4f', '#3ecf8e', '#ff9a3d', '#f6f3ff', '#24222e', CARD];
 const ROAD = '#3b3850', LINE = '#f6f3ff';
 let MAT_W = 30, MAT_D = 20;     // the carpet, in toy units (a block is 1); it can be made bigger
-const SIZES = { small: [20, 20], medium: [30, 20], big: [40, 30], huge: [60, 40] };
+const PATTERN = 1.5;            // how big the town picture is drawn: a road is two cars wide
+const SIZES = { small: [30, 30], medium: [45, 30], big: [60, 45], huge: [90, 60] };
 const KID = 5;                  // the kids are real children: giants next to the toys
 const KID_R = 1.2;              // how wide a kid is when bumping into things
 
@@ -31,7 +32,8 @@ const KEY = (id, mode = 'free') => (mode === 'herd' ? `playground.herd.${id}` : 
 
 // The town, as a plan in carpet units (0,0 is the top-left corner): a ring road, a street every 10 units,
 // and something in every block. The picture, the random town and the driving cars all read this plan.
-function townPlan(W, H) {
+// (patternPlan works in the picture's own units; townPlan gives the same plan in toy units.)
+function patternPlan(W, H) {
   const xs = [1.7], ys = [1.7];
   for (let x = 10; x < W - 5; x += 10) xs.push(x);
   for (let y = 10; y < H - 5; y += 10) ys.push(y);
@@ -57,19 +59,25 @@ function townPlan(W, H) {
   }
   return plan;
 }
+function townPlan(W, H) {
+  const k = PATTERN, plan = patternPlan(W / k, H / k), box = (q) => ({ ...q, x: q.x * k, y: q.y * k, w: q.w * k, h: q.h * k });
+  return { ...plan, W, H, xs: plan.xs.map((v) => v * k), ys: plan.ys.map((v) => v * k), rounds: plan.rounds.map(([x, y]) => [x * k, y * k]), zebras: plan.zebras.map(([x, y, v]) => [x * k, y * k, v]),
+    plots: plan.plots.map(box), lots: plan.lots.map(box), pitches: plan.pitches.map(box), fairs: plan.fairs.map(box), ponds: plan.ponds.map((q) => ({ x: q.x * k, y: q.y * k, rx: q.rx * k, ry: q.ry * k })) };
+}
 
 function carpetTexture(style, W, H) {
   const u = Math.floor(Math.min(80, 3072 / W));   // pixels per toy unit (less on a huge carpet, to go easy on phones)
   const c = document.createElement('canvas');
-  c.width = W * u; c.height = H * u;
+  c.width = Math.round(W * u); c.height = Math.round(H * u);
   const g = c.getContext('2d');
-  g.scale(u, u);   // from here on, everything is drawn in toy units
+  g.scale(u * PATTERN, u * PATTERN);   // from here on, everything is drawn in the picture's own units
+  W /= PATTERN; H /= PATTERN;
   if (style === 'plain') {
     g.fillStyle = '#3ecf8e'; g.fillRect(0, 0, W, H);
   } else if (style === 'grid') {
     for (let y = 0; y < H / 2; y++) for (let x = 0; x < W / 2; x++) { g.fillStyle = (x + y) % 2 ? '#f6f3ff' : '#ffd0ea'; g.fillRect(x * 2, y * 2, 2, 2); }
   } else {
-    const plan = townPlan(W, H), { xs, ys } = plan;
+    const plan = patternPlan(W, H), { xs, ys } = plan;
     g.fillStyle = '#58d6a0'; g.fillRect(0, 0, W, H);
     const road = (draw) => { g.strokeStyle = ROAD; g.lineWidth = 1.5; g.lineCap = 'round'; g.lineJoin = 'round'; g.setLineDash([]); g.beginPath(); draw(); g.stroke(); };
     const dashes = (draw) => { g.strokeStyle = LINE; g.lineWidth = 0.08; g.setLineDash([0.46, 0.4]); g.beginPath(); draw(); g.stroke(); g.setLineDash([]); };
@@ -335,6 +343,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       <button data-s="fav" title="Your favourite toy: the one the kids must not knock over">Favourite</button><button data-s="draw" title="Draw windows and a door on it with a marker" hidden>Draw windows</button><button data-s="copy" title="Another one (Ctrl/⌘ + D)">Copy</button><button data-s="delete" title="Put it away (Delete)">Remove</button>
     </div>
     <div class="pg-box"></div>
+    <div class="pg-census" hidden></div>
     <div class="pg-clock" hidden></div>
     <div class="pg-kick" hidden></div>
     <div class="pg-powers" hidden>
@@ -420,7 +429,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   // --- saving
   const save = () => {
     const at = (t) => t.userData.mv?.home ?? { p: t.position, r: t.rotation.y };   // a toy that is driving about is saved where it started
-    const data = { carpet: state.carpet, size: state.size, toys: toys.map((t) => ({ kind: t.userData.kind, x: +at(t).p.x.toFixed(3), y: +at(t).p.y.toFixed(3), z: +at(t).p.z.toFixed(3), r: +at(t).r.toFixed(3), s: +t.scale.x.toFixed(3), color: `#${t.userData.paint.color.getHexString()}`, ...(t.userData.letter ? { letter: t.userData.letter } : {}), ...(t.userData.drawn ? { drawn: 1 } : {}) })) };
+    const data = { v: 2, carpet: state.carpet, size: state.size, toys: toys.map((t) => ({ kind: t.userData.kind, x: +at(t).p.x.toFixed(3), y: +at(t).p.y.toFixed(3), z: +at(t).p.z.toFixed(3), r: +at(t).r.toFixed(3), s: +t.scale.x.toFixed(3), color: `#${t.userData.paint.color.getHexString()}`, ...(t.userData.letter ? { letter: t.userData.letter } : {}), ...(t.userData.drawn ? { drawn: 1 } : {}) })) };
     if (mode === 'herd') Object.assign(data, { herd, fav: toys.indexOf(fav) });
     try { localStorage.setItem(KEY(boardId, mode), JSON.stringify(data)); localStorage.setItem(`playground.mode.${boardId}`, mode); } catch {}
   };
@@ -682,6 +691,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     setSize(e.target.value);
     if (mode === 'herd') showRound();
     camera.position.copy(homeView()); controls.target.set(0, 0, 0.5); controls.update();
+    startMotion(true);
     save();
   });
 
@@ -692,7 +702,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     const pick = (list) => list[Math.floor(rnd() * list.length)];
     const bright = () => pick(COLOURS.slice(0, 6));
     const put = (kind, x, z, o = {}) => (toys.length < 150 ? addToy(kind, { y: 0, r: 0, ...o, x: x + ox, z: z + oz }, { quiet: true }) : null);
-    for (const p of plan.plots) for (const f of p.w > 4.4 ? [0.27, 0.73] : [0.5]) {
+    for (const p of plan.plots) for (const f of p.w > 6.6 ? [0.27, 0.73] : [0.5]) {
       const x = p.x + p.w * f, z = p.y + p.h / 2, roll = rnd();
       if (roll < 0.1) continue;
       if (roll < 0.32) put('house', x, z, { color: pick(['#f6f3ff', '#ffd23f', '#ff9a3d', '#3d7bff']) });
@@ -705,7 +715,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       if (rnd() < 0.3) put('person', x + 0.2, p.y + p.h + 0.1, { color: bright() });
     }
     for (const p of plan.ponds) for (let i = 0; i < 3; i++) { const a = rnd() * 6.3; put(pick(['tree', 'pine', 'tree']), p.x + Math.cos(a) * (p.rx + 0.5), p.y + Math.sin(a) * (p.ry + 0.6)); }
-    for (const p of plan.lots) for (let bx = p.x + 0.48; bx < p.x + p.w - 0.5; bx += 0.97) if (rnd() < 0.4) put('car', bx, p.y + 0.9, { r: Math.PI / 2, color: bright() });
+    for (const p of plan.lots) for (let bx = p.x + 0.73; bx < p.x + p.w - 0.7; bx += 0.97 * PATTERN) if (rnd() < 0.4) put('car', bx, p.y + 0.9, { r: Math.PI / 2, color: bright() });
     for (const p of plan.pitches) { put('ball', p.x + p.w / 2, p.y + p.h / 2, { s: 0.5 }); put('person', p.x + p.w * 0.3, p.y + p.h * 0.4, { color: '#ff5a4f' }); put('person', p.x + p.w * 0.7, p.y + p.h * 0.6, { color: '#3d7bff' }); }
     for (const p of plan.fairs) {
       const sc = p.w < 6.4 ? 0.74 : 1;   // a smaller coaster on a smaller pad
@@ -716,8 +726,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     }
     // Traffic: on the right-hand side of the road.
     const { xs, ys } = plan;
-    for (const y of ys) for (let i = 0; i < xs.length - 1; i++) if (rnd() < 0.3) put(pick(['car', 'car', 'bus', 'truck']), (xs[i] + xs[i + 1]) / 2, y + 0.36, { color: bright() });
-    for (const x of xs) for (let j = 0; j < ys.length - 1; j++) if (rnd() < 0.22) put(pick(['car', 'car', 'truck']), x - 0.36, (ys[j] + ys[j + 1]) / 2, { r: -Math.PI / 2, color: bright() });
+    for (const y of ys) for (let i = 0; i < xs.length - 1; i++) if (rnd() < 0.3) put(pick(['car', 'car', 'bus', 'truck']), (xs[i] + xs[i + 1]) / 2, y + 0.55, { color: bright() });
+    for (const x of xs) for (let j = 0; j < ys.length - 1; j++) if (rnd() < 0.22) put(pick(['car', 'car', 'truck']), x - 0.55, (ys[j] + ys[j + 1]) / 2, { r: -Math.PI / 2, color: bright() });
     for (const [x, y] of plan.zebras) if (rnd() < 0.18) put('person', x, y, { color: bright() });
   };
   const randomBtn = el.querySelector('[data-a="random"]');
@@ -733,6 +743,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     select(null);
     if (state.carpet !== 'town') { setCarpet('town'); el.querySelector('[data-a="carpet"]').value = 'town'; }
     buildTown();
+    startMotion(true);
     setMore(false);
     needs = true;
     save();
@@ -746,7 +757,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   const roadNet = () => {
     const { xs, ys } = townPlan(MAT_W, MAT_D), nodes = [];
     for (let j = 0; j < ys.length; j++) for (let i = 0; i < xs.length; i++) {
-      const cornerX = i === 0 ? 0.64 : i === xs.length - 1 ? -0.64 : 0, cornerY = j === 0 ? 0.64 : j === ys.length - 1 ? -0.64 : 0, corner = cornerX && cornerY;   // the ring road cuts its corners
+      const cornerX = i === 0 ? 0.96 : i === xs.length - 1 ? -0.96 : 0, cornerY = j === 0 ? 0.96 : j === ys.length - 1 ? -0.96 : 0, corner = cornerX && cornerY;   // the ring road cuts its corners
       const next = [];
       if (i > 0) next.push(j * xs.length + i - 1); if (i < xs.length - 1) next.push(j * xs.length + i + 1);
       if (j > 0) next.push((j - 1) * xs.length + i); if (j < ys.length - 1) next.push((j + 1) * xs.length + i);
@@ -755,15 +766,22 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     return nodes;
   };
   const DRIVES = { car: 3.4, truck: 2.6, bus: 2.4 };
-  const startMotion = () => {
+  // The people who live here. Every home brings a few; they stroll about, visit each other, and pop indoors.
+  const HOMES = { house: 2, box: 3, carton: 1, cereal: 1, shoebox: 1, tent: 2 };
+  let folk = [], folkCheck = 0;
+  const census = el.querySelector('.pg-census');
+  const population = () => Math.min(36, toys.reduce((n, t) => n + (HOMES[t.userData.kind] || 0), 0));
+  const clearFolk = () => { for (const f of folk) scene.remove(f.mesh); folk = []; census.hidden = true; };
+  const startMotion = (quiet = false) => {
     if (moving || game) return;
-    if (state.carpet !== 'town') toast('Cars need the town carpet to find the roads. The rest still moves.');
+    if (state.carpet !== 'town' && !quiet) toast('Cars need the town carpet to find the roads. The rest still moves.');
     moving = true; moveLast = performance.now(); net = state.carpet === 'town' ? roadNet() : null;
     goBtn.textContent = 'Stop'; goBtn.classList.add('on');
   };
   const stopMotion = () => {
     if (!moving) return;
     moving = false;
+    clearFolk();
     for (const t of toys) if (t.userData.mv) { t.position.copy(t.userData.mv.home.p); t.rotation.set(0, t.userData.mv.home.r, 0); delete t.userData.mv; }
     goBtn.textContent = 'Go!'; goBtn.classList.remove('on');
     placeRing(); needs = true;
@@ -785,7 +803,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
         const a = mv.from === null ? null : net[mv.from], b = net[mv.to];
         // Aim for the right-hand lane of the stretch being driven.
         let tx = b.x, tz = b.z;
-        if (a) { const lx = b.x - a.x, lz = b.z - a.z, ll = Math.hypot(lx, lz) || 1; tx += (-lz / ll) * 0.36; tz += (lx / ll) * 0.36; }
+        if (a) { const lx = b.x - a.x, lz = b.z - a.z, ll = Math.hypot(lx, lz) || 1; tx += (-lz / ll) * 0.55; tz += (lx / ll) * 0.55; }
         const dx = tx - t.position.x, dz = tz - t.position.z, d = Math.hypot(dx, dz), step = DRIVES[kind] * dt;
         if (d <= step + 0.02) {
           const choices = b.next.filter((i) => i !== mv.from);
@@ -802,6 +820,33 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
         if (d <= step) { mv.tx = null; mv.wait = 0.5 + Math.random() * 2.5; t.position.y = mv.home.p.y; t.rotation.z = 0; }
         else { t.position.x += (dx / d) * step; t.position.z += (dz / d) * step; t.position.y = mv.home.p.y + Math.abs(Math.sin(time * 9 + mv.home.p.x)) * 0.06; t.rotation.z = Math.sin(time * 9 + mv.home.p.x) * 0.08; }
       }
+    }
+    // Residents: the right number for the homes there are, each on its own little errand.
+    if ((folkCheck -= dt) <= 0) {
+      folkCheck = 1.5;
+      const homes = toys.filter((t) => HOMES[t.userData.kind] && t.position.y < 0.05), want = population();
+      folk = folk.filter((f) => (toys.includes(f.home) && folk.indexOf(f) < want ? true : (scene.remove(f.mesh), false)));
+      while (folk.length < want && homes.length) {
+        const home = homes[Math.floor(Math.random() * homes.length)], mesh = makeToy('person', { color: COLOURS[Math.floor(Math.random() * 7)], s: 0.62 });
+        mesh.position.set(home.position.x, 0, home.position.z); mesh.visible = false;
+        scene.add(mesh);
+        folk.push({ mesh, home, tx: null, tz: 0, wait: Math.random() * 3, inside: true, phase: Math.random() * 6 });
+      }
+      census.hidden = !want;
+      census.textContent = want === 1 ? '1 resident' : `${want} residents`;
+    }
+    for (const f of folk) {
+      if (f.tx === null) {
+        if ((f.wait -= dt) > 0) continue;
+        // Off to see a neighbour, or just a turn around the block.
+        const visit = Math.random() < 0.55, other = toys[Math.floor(Math.random() * toys.length)];
+        const to = visit && other && HOMES[other.userData.kind] ? other : null, a = Math.random() * 6.3, r = 1.5 + Math.random() * 4;
+        f.tx = to ? to.position.x : f.home.position.x + Math.cos(a) * r; f.tz = to ? to.position.z : f.home.position.z + Math.sin(a) * r; f.indoors = !!to;
+        if (f.inside) { f.inside = false; f.mesh.visible = true; }
+      }
+      const dx = f.tx - f.mesh.position.x, dz = f.tz - f.mesh.position.z, d = Math.hypot(dx, dz), step = 1.5 * dt;
+      if (d <= step + 0.6 * (f.indoors ? 1 : 0)) { f.tx = null; f.wait = 1 + Math.random() * 4; f.mesh.position.y = 0; f.mesh.rotation.z = 0; if (f.indoors) { f.inside = true; f.mesh.visible = false; } }
+      else { f.mesh.position.x += (dx / d) * step; f.mesh.position.z += (dz / d) * step; f.mesh.position.y = Math.abs(Math.sin(time * 10 + f.phase)) * 0.05; f.mesh.rotation.z = Math.sin(time * 10 + f.phase) * 0.09; }
     }
     if (selected) placeRing();
   };
@@ -970,6 +1015,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     if (game) return;
     if (!toys.some((t) => !TRAPS.includes(t.userData.kind))) { toast('Build something first, then let them at it.'); return; }
     if (mode === 'herd' && !fav) { toast('Tap the toy you love most and make it your favourite.'); return; }
+    const wasAlive = moving;
     stopMotion();
     setMore(false);
     select(null);
@@ -1007,12 +1053,16 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       return { toy, body, centre, start };
     });
     const lures = items.filter((it) => it.toy.userData.kind === 'jar');
-    const LENGTH = mode === 'herd' ? 14 : 11;   // seconds of mayhem
+    const LENGTH = mode === 'herd' ? 16 : 11;   // seconds of mayhem
     // The kids come in from every side of the carpet.
-    const count = mode === 'herd' ? herdKids() : Math.round((Number(el.querySelector('[data-a="kids"]').value) || 6) * Math.sqrt((MAT_W * MAT_D) / 600));   // more kids for a bigger carpet
+    const count = mode === 'herd' ? herdKids() : Math.round((Number(el.querySelector('[data-a="kids"]').value) || 6) * Math.sqrt((MAT_W * MAT_D) / 1350));   // more kids for a bigger carpet
     const kids = [];
+    let bunchAt = 0, bunchWants = null;
     for (let i = 0; i < count; i++) {
-      const a = (i / count) * Math.PI * 2 + Math.random() * 0.5;
+      // They come in bunches of four, each bunch from its own side and after the same toy at first.
+      const bunch = Math.floor(i / 4), bunches = Math.ceil(count / 4);
+      if (i % 4 === 0) { bunchAt = Math.random() * 6.3; bunchWants = items[Math.floor(Math.random() * items.length)]; }
+      const a = bunchAt + ((i % 4) - 1.5) * 0.13;
       const round = mode === 'herd' ? herd.round : 9, roll = Math.random();
       const type = roll < (mode !== 'herd' ? 0.14 : round >= 2 ? 0.25 : 0) ? 'runner' : roll > (mode !== 'herd' ? 0.9 : round >= 3 ? 0.82 : 1) ? 'big' : 'kid';
       const mesh = makeKid(i, type);
@@ -1020,9 +1070,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       const body = new CANNON.Body({ mass: 6, material: kidMat, shape: new CANNON.Sphere(KID_R), linearDamping: 0.3, fixedRotation: true });
       body.position.set(Math.cos(a) * (MAT_W / 2 + 4 + Math.random() * 4), KID_R, Math.sin(a) * (MAT_D / 2 + 4 + Math.random() * 4));
       // In kid herd they don't all come at once: you have to keep watching.
-      const start = mode === 'herd' ? (i / count) * LENGTH * 0.55 : 0;
+      const start = mode === 'herd' ? (bunch / bunches) * LENGTH * 0.6 : 0;
       mesh.visible = false;
-      kids.push({ mesh, body, start, type, hp: type === 'big' ? 2 : 1, push: type === 'big' ? 2.2 : 1, in: false, target: null, until: 0, speed: (4.2 + Math.random() * 2.4) * (type === 'runner' ? 1.7 : type === 'big' ? 0.7 : 1), phase: Math.random() * 6, face: 0 });
+      kids.push({ mesh, body, start, type, wants: bunchWants, hp: type === 'big' ? 2 : 1, push: type === 'big' ? 2.2 : 1, in: false, target: null, until: 0, speed: (5.4 + Math.random() * 2.6) * (type === 'runner' ? 1.7 : type === 'big' ? 0.7 : 1), phase: Math.random() * 6, face: 0 });
     }
     const clock = el.querySelector('.pg-clock');
     clock.hidden = false;
@@ -1057,7 +1107,11 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     // Kick! Tap a kid and it is lobbed away from you, out for the round. Swipe across a kid and it is sent
     // skidding low in that direction, knocking out every kid in its way. Your foot needs a moment between kicks.
     const kickBar = el.querySelector('.pg-kick');
-    kickBar.hidden = false; kickBar.textContent = 'Tap a kid to kick it out. Swipe to bowl it into the others.'; kickBar.classList.remove('wait');
+    // You only have three kicks, and they come back slowly: one kid at a time will not do it.
+    const KICKS = 3, REFILL = 2.6;
+    game.kicks = KICKS; game.refill = 0;
+    const showKicks = () => { kickBar.textContent = `${'●'.repeat(game.kicks)}${'○'.repeat(KICKS - game.kicks)}${game.kicked ? `  ${game.kicked} out` : '  Swipe a kid into the others'}`; kickBar.classList.toggle('wait', !game.kicks); };
+    kickBar.hidden = false; showKicks();
     let lastKick = -9, aimKid = null;
     const head = (k) => new THREE.Vector3(k.body.position.x, k.body.position.y + 3.2, k.body.position.z);
     const launch = (k, dx, dz, flat, chain) => {
@@ -1067,7 +1121,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       k.body.collisionFilterMask = 2; k.body.linearDamping = 0.02;
       Object.assign(k, { fly: true, out: true, bowl: flat, dirx: dx, dirz: dz, chain, flyAt: game.t, spin: (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 6), target: null });
       game.kicked++;
-      kickBar.textContent = `${game.kicked} kicked out`;
+      showKicks();
       pop(head(k), ['Pow!', 'Double!', 'Triple!', 'STRIKE!'][Math.min(3, chain)]);
     };
     kick = (e) => {
@@ -1083,7 +1137,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
         scene.add(cone);
         game.armed = false; game.lure = { x: hit.x, z: hit.z, until: game.t + 4.5, mesh: cone };
         lureBtn.classList.remove('on'); lureBtn.disabled = true;
-        kickBar.textContent = game.kicked ? `${game.kicked} kicked out` : 'Ice cream!';
+        showKicks();
         pop(new THREE.Vector3(hit.x, 3, hit.z), 'Ice cream!');
         return true;
       }
@@ -1098,7 +1152,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       if (!aimKid || e.pointerId !== aimKid.id) return;
       const { k, x, y } = aimKid;
       aimKid = null;
-      if (!game || game.leaving || k.out || game.t - lastKick < 0.55) return;
+      if (!game || game.leaving || k.out || game.t - lastKick < 0.25) return;
+      if (!game.kicks) { pop(head(k), 'No kicks left!'); return; }
+      game.kicks--; showKicks();
       const sx = e.clientX - x, sy = e.clientY - y, swipe = Math.hypot(sx, sy) > 14;
       let dx = k.body.position.x - camera.position.x, dz = k.body.position.z - camera.position.z;   // a tap: away from you
       if (swipe) {
@@ -1130,13 +1186,13 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       const w = game.shoo >= 0 ? (game.t - game.shoo) / 0.9 : 2;
       wave.visible = w < 1;
       if (w < 1) { wave.scale.setScalar(1 + w * 40); wave.material.opacity = 0.9 * (1 - w); }
-      kickBar.classList.toggle('wait', game.t - lastKick < 0.7);
+      if (game.kicks < KICKS && (game.refill += dt) >= REFILL) { game.refill = 0; game.kicks++; showKicks(); }
       // Everyone kicked out? Then it is over early.
       const allOut = kids.every((k) => k.out);
       if (allOut && !game.leaving && game.t < LENGTH - 0.01) game.t = Math.max(game.t, LENGTH + 0.6);
       clock.textContent = allOut ? 'All out!' : left > 0 ? `${Math.ceil(left)}` : 'Home time!';
       for (const k of kids) {
-        if (!k.in) { if (game.t < k.start || game.leaving) continue; k.in = true; k.mesh.visible = true; world.addBody(k.body); }
+        if (!k.in) { if (game.t < k.start || game.leaving) continue; k.in = true; k.mesh.visible = true; world.addBody(k.body); k.target = k.wants; k.until = game.t + 3 + Math.random() * 1.5; }
         if (k.gone) continue;
         if (k.out) {
           // Kicked: gone for this round. One sent skidding takes others with it.
@@ -1228,7 +1284,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       const res = el.querySelector('.pg-result');
       res.hidden = false;
       const restore = () => { for (const it of g.items) { it.toy.position.copy(it.start.p); it.toy.quaternion.copy(it.start.q); } needs = true; };
-      const done = () => { res.hidden = true; el.classList.remove('pg-playing'); save(); };
+      const done = () => { res.hidden = true; el.classList.remove('pg-playing'); save(); if (wasAlive) startMotion(true); };
       if (mode === 'herd') {
         // Kid herd: your favourite decides how good the prizes are, and losing it costs a heart.
         herd.streak = favOk ? herd.streak + 1 : 0;
@@ -1315,7 +1371,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   });
   // ---------- Free play and kid herd ----------
   // Two towns, kept apart: the one you build freely, and the one you defend round after round.
-  const herdKids = () => Math.min(26, Math.round((2 + 2 * herd.round) * Math.sqrt((MAT_W * MAT_D) / 600)));   // more of them every round, and on a bigger carpet
+  const herdKids = () => Math.min(40, Math.round((4 + 3 * herd.round) * Math.sqrt((MAT_W * MAT_D) / 1350)));   // more of them every round, and on a bigger carpet
   const showRound = () => {
     const on = mode === 'herd';
     el.classList.toggle('pg-herd', on);
@@ -1338,10 +1394,12 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     setSize(saved?.size || 'medium');
     el.querySelector('[data-a="carpet"]').value = state.carpet;
     el.querySelector('[data-a="size"]').value = state.size;
+    if (saved && !saved.v) { for (const t of saved.toys || []) { t.x *= PATTERN; t.z *= PATTERN; } }   // saved when the picture was smaller: spread out to match
     if (saved?.toys?.length) for (const t of saved.toys) addToy(t.kind, t, { quiet: true });
     else if (m === 'free' && !saved) buildTown(dice(4));   // a first town, so the mat isn't empty (always the same one)
     if (m === 'herd') fav = toys[saved?.fav] || null;
     showBox(); showRound();
+    startMotion(true);   // the town is alive unless you stop it
     camera.position.copy(homeView()); controls.target.set(0, 0, 0.5); controls.update();
     needs = true;
   };

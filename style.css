@@ -165,3 +165,9 @@ button { font: inherit; color: inherit; }
 @keyframes pg-pop { 0% { transform: translate(-50%, -30%) scale(0.4) rotate(-8deg); opacity: 0; } 18% { transform: translate(-50%, -60%) scale(1.25) rotate(4deg); opacity: 1; } 100% { transform: translate(-50%, -190%) scale(1) rotate(0); opacity: 0; } }
 @media (prefers-reduced-motion: reduce) { .pg-pop { animation-duration: 0.01s; } }
 .pg-kick { max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; }
+
+/* How many people live in the town. */
+.pg-census { position: absolute; left: 16px; top: 68px; padding: 3px 12px; border-radius: var(--blob-s); background: var(--overlay); border: 1px solid var(--panel-border); color: var(--text-strong); font: 600 12px var(--font-second); pointer-events: none; }
+.pg-census[hidden], #playground.pg-playing .pg-census, #playground.pg-walking .pg-census { display: none; }
+@media (max-width: 700px) { .pg-census { left: 12px; top: 108px; } }
+.pg-kick { letter-spacing: 0.02em; }
