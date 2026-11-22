@@ -75,16 +75,12 @@ button { font: inherit; color: inherit; }
 }
 
 /* Shoo! The one special move during the kid test. */
-#playground .pg-shoo { position: absolute; left: 50%; bottom: 124px; transform: translateX(-50%); height: 56px; padding: 0 34px; border: 0; border-radius: var(--blob); background: var(--accent); color: #fff; font: 700 24px var(--font-display); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); touch-action: manipulation; }
-#playground .pg-shoo:active { transform: translateX(-50%) scale(0.94); }
-#playground .pg-shoo:disabled { opacity: 0.3; cursor: default; }
-@media (max-width: 700px) { #playground .pg-shoo { bottom: calc(28px + env(safe-area-inset-bottom, 0px)); } }
 
 /* Walk mode: thumb sticks over the picture, and nothing else in the way. */
 #playground.pg-walking .pg-top, #playground.pg-walking .pg-box, #playground.pg-walking .pg-sel { display: none; }
 .pg-walk { position: absolute; inset: 0; z-index: 1; touch-action: none; cursor: grab; }
 .pg-walk[hidden], .pg-walkbar[hidden] { display: none; }
-.pg-clock, .pg-result, #playground .pg-shoo, .pg-walkbar { z-index: 2; }
+.pg-clock, .pg-result, .pg-powers, .pg-walkbar { z-index: 2; }
 .pg-walkbar { position: absolute; left: 12px; right: 12px; top: calc(10px + env(safe-area-inset-top, 0px)); display: flex; justify-content: space-between; gap: 8px; pointer-events: none; }
 .pg-walkbar button { pointer-events: auto; box-shadow: 0 8px 22px rgba(0, 0, 0, 0.3); }
 #playground.pg-playing .pg-walkbar [data-w="release"] { visibility: hidden; }
@@ -96,7 +92,6 @@ button { font: inherit; color: inherit; }
 @media (pointer: coarse) { .pg-stick { display: block; } }
 /* In walk mode the clock sits in the corner and Boom! sits above the thumb sticks. */
 #playground.pg-walking .pg-clock { left: auto; right: 12px; top: calc(10px + env(safe-area-inset-top, 0px)); transform: none; min-width: 56px; padding: 2px 14px; font-size: 30px; }
-@media (pointer: coarse) { #playground.pg-walking .pg-shoo { bottom: calc(180px + env(safe-area-inset-bottom, 0px)); } }
 
 /* The "More" panel, and the drawers of the toy box. */
 .pg-more { position: absolute; right: 12px; top: 62px; z-index: 3; display: flex; flex-direction: column; gap: 6px; padding: 8px; border: 1px solid var(--panel-border); border-radius: var(--blob); background: var(--overlay); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3); }
@@ -133,7 +128,7 @@ button { font: inherit; color: inherit; }
 #playground select[hidden] { display: none; }
 #playground [data-a="restart"] { display: none; }
 #playground.pg-herd [data-a="restart"] { display: block; }
-#playground.pg-herd .pg-more [data-a="carpet"], #playground.pg-herd .pg-more [data-a="size"], #playground.pg-herd .pg-more [data-a="random"], #playground.pg-herd .pg-more [data-a="clear"],
+#playground.pg-herd .pg-more [data-a="carpet"], #playground.pg-herd .pg-more [data-a="random"], #playground.pg-herd .pg-more [data-a="clear"],
 #playground.pg-herd [data-s="copy"], #playground.pg-herd [data-s="smaller"], #playground.pg-herd [data-s="bigger"] { display: none; }
 .pg-tabs[hidden] { display: none; }
 .pg-empty { padding: 0 10px; font: 500 12.5px var(--font-second); color: var(--text); line-height: 34px; white-space: nowrap; }
@@ -155,3 +150,18 @@ button { font: inherit; color: inherit; }
 @media (max-width: 700px) { .pg-kick { top: calc(84px + env(safe-area-inset-top, 0px)); } }
 #playground.pg-walking .pg-kick { top: calc(56px + env(safe-area-inset-top, 0px)); }
 #playground.pg-playing canvas { cursor: crosshair; }
+
+/* The battle: three powers at the bottom, and words that pop up over the action. */
+.pg-powers { position: absolute; left: 50%; bottom: 124px; transform: translateX(-50%); display: flex; align-items: center; gap: 10px; }
+.pg-powers[hidden] { display: none; }
+#playground .pg-powers button { height: 46px; padding: 0 18px; border: 2px solid var(--accent); border-radius: var(--blob); background: var(--panel); color: var(--text-strong); font: 700 16px var(--font-display); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.35); touch-action: manipulation; }
+#playground .pg-powers .pg-shoo { height: 56px; padding: 0 30px; border: 0; background: var(--accent); color: #fff; font-size: 24px; }
+#playground .pg-powers button.on { background: var(--accent); color: #fff; }
+#playground .pg-powers button:active { transform: scale(0.94); }
+#playground .pg-powers button:disabled { opacity: 0.3; cursor: default; }
+@media (max-width: 700px) { .pg-powers { bottom: calc(28px + env(safe-area-inset-bottom, 0px)); gap: 6px; } #playground .pg-powers button { padding: 0 12px; font-size: 14px; } #playground .pg-powers .pg-shoo { padding: 0 20px; font-size: 21px; } }
+@media (pointer: coarse) { #playground.pg-walking .pg-powers { bottom: calc(180px + env(safe-area-inset-bottom, 0px)); } }
+.pg-pop { position: absolute; z-index: 2; transform: translate(-50%, -50%); font: 700 30px var(--font-display); color: #fff; -webkit-text-stroke: 6px var(--accent); paint-order: stroke fill; white-space: nowrap; pointer-events: none; animation: pg-pop 0.85s ease-out forwards; }
+@keyframes pg-pop { 0% { transform: translate(-50%, -30%) scale(0.4) rotate(-8deg); opacity: 0; } 18% { transform: translate(-50%, -60%) scale(1.25) rotate(4deg); opacity: 1; } 100% { transform: translate(-50%, -190%) scale(1) rotate(0); opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .pg-pop { animation-duration: 0.01s; } }
+.pg-kick { max-width: calc(100vw - 24px); overflow: hidden; text-overflow: ellipsis; }
