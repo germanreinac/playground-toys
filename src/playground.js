@@ -210,6 +210,8 @@ const PRIZES = { common: ['block', 'brick', 'carton', 'cereal', 'shoebox', 'tree
 const dice = (seed) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
 
 const TRAPS = ['jam', 'tramp', 'jar'];
+const TILT = 0.32;
+const GREEN = ['tree', 'pine'], FUN = ['ferris', 'carousel', 'coaster', 'tent', 'balloons'];
 
 const TOYS = {
   block: { label: 'Block', colour: '#ff3fa9', make: (m) => [part(new THREE.BoxGeometry(1, 1, 1), m, 0, 0.5, 0)] },
@@ -299,9 +301,10 @@ function makeToy(kind, opts = {}) {
   const g = new THREE.Group();
   const paint = lambert(opts.color || def.colour);
   g.add(...def.make(paint, g, opts));
-  g.userData = { kind, paint, drawn: !!opts.drawn, letter: opts.letter || (kind === 'letter' ? 'A' : undefined) };
+  g.userData = { kind, paint, broken: !!opts.b, drawn: !!opts.drawn, letter: opts.letter || (kind === 'letter' ? 'A' : undefined) };
   g.position.set(opts.x || 0, opts.y || 0, opts.z || 0);
   g.rotation.y = opts.r || 0;
+  g.rotation.z = opts.b ? TILT : 0;   // a broken toy leans
   g.scale.setScalar(opts.s || 1);
   return g;
 }
@@ -346,10 +349,11 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       <span class="pg-colours"></span>
       <button data-s="left" title="Turn left (Q)">⟲</button><button data-s="right" title="Turn right (E)">⟳</button>
       <button data-s="smaller" title="Smaller ([)">−</button><button data-s="bigger" title="Bigger (])">+</button>
-      <button data-s="fav" title="Your favourite toy: the one the kids must not knock over">Favourite</button><button data-s="draw" title="Draw windows and a door on it with a marker" hidden>Draw windows</button><button data-s="copy" title="Another one (Ctrl/⌘ + D)">Copy</button><button data-s="delete" title="Put it away (Delete)">Remove</button>
+      <span class="pg-info" hidden></span><button data-s="repair" title="Mend it" hidden>Repair</button><button data-s="fav" title="Your favourite toy: the one the kids must not knock over">Favourite</button><button data-s="draw" title="Draw windows and a door on it with a marker" hidden>Draw windows</button><button data-s="copy" title="Another one (Ctrl/⌘ + D)">Copy</button><button data-s="delete" title="Put it away (Delete)">Remove</button>
     </div>
     <div class="pg-box"></div>
     <div class="pg-census" hidden></div>
+    <button class="pg-repair" hidden></button>
     <div class="pg-clock" hidden></div>
     <div class="pg-kick" hidden></div>
     <div class="pg-powers" hidden>
@@ -412,6 +416,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   const star = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.5, 4), new THREE.MeshBasicMaterial({ color: '#ff3fa9' }));   // hovers over your favourite
   star.rotation.x = Math.PI; star.scale.setScalar(1.5); star.visible = false;
   scene.add(star);
+  const cross = new THREE.Group(), crosses = [];
+  for (const a of [0.785, -0.785]) { const bar = new THREE.Mesh(new THREE.BoxGeometry(0.62, 0.16, 0.04), new THREE.MeshBasicMaterial({ color: '#ff5a4f', depthTest: false })); bar.rotation.z = a; bar.renderOrder = 6; cross.add(bar); }
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 48), new THREE.MeshBasicMaterial({ color: '#ff3fa9', transparent: true, opacity: 0.95, depthTest: false }));
   ring.rotation.x = -Math.PI / 2; ring.visible = false; ring.renderOrder = 5;
   scene.add(ring);
@@ -435,7 +441,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   // --- saving
   const save = () => {
     const at = (t) => t.userData.mv?.home ?? { p: t.position, r: t.rotation.y };   // a toy that is driving about is saved where it started
-    const data = { v: 2, carpet: state.carpet, size: state.size, toys: toys.map((t) => ({ kind: t.userData.kind, x: +at(t).p.x.toFixed(3), y: +at(t).p.y.toFixed(3), z: +at(t).p.z.toFixed(3), r: +at(t).r.toFixed(3), s: +t.scale.x.toFixed(3), color: `#${t.userData.paint.color.getHexString()}`, ...(t.userData.letter ? { letter: t.userData.letter } : {}), ...(t.userData.drawn ? { drawn: 1 } : {}) })) };
+    const data = { v: 2, carpet: state.carpet, size: state.size, toys: toys.map((t) => ({ kind: t.userData.kind, x: +at(t).p.x.toFixed(3), y: +at(t).p.y.toFixed(3), z: +at(t).p.z.toFixed(3), r: +at(t).r.toFixed(3), s: +t.scale.x.toFixed(3), color: `#${t.userData.paint.color.getHexString()}`, ...(t.userData.letter ? { letter: t.userData.letter } : {}), ...(t.userData.drawn ? { drawn: 1 } : {}), ...(t.userData.broken ? { b: 1 } : {}) })) };
     if (mode === 'herd') Object.assign(data, { herd, fav: toys.indexOf(fav) });
     try { localStorage.setItem(KEY(boardId, mode), JSON.stringify(data)); localStorage.setItem(`playground.mode.${boardId}`, mode); } catch {}
   };
@@ -466,6 +472,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     const favBtn = el.querySelector('[data-s="fav"]');
     favBtn.hidden = mode !== 'herd' || TRAPS.includes(toy?.userData.kind);
     favBtn.classList.toggle('on', !!toy && toy === fav);
+    showInfo();
     const drawBtn = el.querySelector('[data-s="draw"]');
     drawBtn.hidden = !toy?.userData.paint.userData.card;
     drawBtn.textContent = toy?.userData.drawn ? 'Rub out' : 'Draw windows';
@@ -506,10 +513,11 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     return toy;
   };
   const removeToy = (toy) => {
-    if (mode === 'herd') { herd.box[toy.userData.kind] = (herd.box[toy.userData.kind] || 0) + 1; if (toy === fav) fav = null; showBox(); showCensus(); }   // back in the box
+    if (mode === 'herd') { if (!toy.userData.broken) herd.box[toy.userData.kind] = (herd.box[toy.userData.kind] || 0) + 1; if (toy === fav) fav = null; showBox(); }   // back in the box, unless it was broken: then it is thrown away
     scene.remove(toy);
     toys.splice(toys.indexOf(toy), 1);
     if (selected === toy) select(null);
+    showCensus(); showRepair();
     needs = true;
     save();
   };
@@ -588,6 +596,12 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     right: () => { selected.rotation.y -= Math.PI / 4; },
     smaller: () => { selected.scale.setScalar(Math.max(0.3, selected.scale.x / 1.2)); },
     bigger: () => { selected.scale.setScalar(Math.min(6, selected.scale.x * 1.2)); },
+    repair: () => {
+      const t = selected, cost = repairCost(t);
+      if (herd.coins < cost) { toast(`Mending it costs ${cost} coins.`); return; }
+      herd.coins -= cost; mend(t);
+      showRound(); showBox(); showRepair(); showInfo(); growTown();
+    },
     fav: () => { fav = fav === selected ? null : selected; el.querySelector('[data-s="fav"]').classList.toggle('on', fav === selected); },
     draw: () => {
       const u = selected.userData, m = u.paint;
@@ -653,6 +667,12 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     drag = null;
     controls.enabled = true;
     if (toy.userData.mv) Object.assign(toy.userData.mv, { home: { p: toy.position.clone(), r: toy.rotation.y }, to: null, from: null, tx: null });
+    // Where a thing stands matters to the people living around it.
+    const before = population();
+    showCensus(); showInfo(); growTown();
+    const life = HOMES[toy.userData.kind] && !toy.userData.broken ? homeLife(toy) : null;
+    if (life) pop(new THREE.Vector3(toy.position.x, toy.position.y + 2.4, toy.position.z), `${life.n} ${life.n === 1 ? 'resident' : 'residents'}`);
+    else if (population() !== before) pop(new THREE.Vector3(toy.position.x, toy.position.y + 2.4, toy.position.z), population() > before ? `+${population() - before}` : `${population() - before}`);
     plop(toy);
     save();
   };
@@ -791,7 +811,52 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   const HOMES = { house: 2, box: 3, carton: 1, cereal: 1, shoebox: 1, tent: 2 };
   let folk = [], folkCheck = 0;
   const census = el.querySelector('.pg-census');
-  const population = () => toys.reduce((n, t) => n + (HOMES[t.userData.kind] || 0), 0);
+  let planKey = '', planNow = null;
+  // What a home has within reach. Each of the three brings one more person to live there.
+  const homeLife = (home) => {
+    const x = home.position.x, z = home.position.z;
+    let road = false, green = false, fun = false;
+    if (state.carpet === 'town') {
+      if (planKey !== state.size) { planKey = state.size; planNow = townPlan(MAT_W, MAT_D); }
+      const px = x + MAT_W / 2, pz = z + MAT_D / 2;
+      road = planNow.xs.some((v) => Math.abs(v - px) < 4.5) || planNow.ys.some((v) => Math.abs(v - pz) < 4.5);
+      green = planNow.ponds.some((q) => Math.hypot(q.x - px, q.y - pz) < q.rx + 3.5);
+      fun = planNow.pitches.some((q) => Math.hypot(q.x + q.w / 2 - px, q.y + q.h / 2 - pz) < 8);
+    }
+    for (const t of toys) {
+      if (t === home || t.userData.broken) continue;
+      const d = Math.hypot(t.position.x - x, t.position.z - z);
+      if (d < 4.5 && GREEN.includes(t.userData.kind)) green = true;
+      if (d < 9 && FUN.includes(t.userData.kind)) fun = true;
+    }
+    return { road, green, fun, n: HOMES[home.userData.kind] + road + green + fun };
+  };
+  const population = () => toys.reduce((n, t) => n + (HOMES[t.userData.kind] && !t.userData.broken ? homeLife(t).n : 0), 0);
+  const showInfo = () => {
+    const info = el.querySelector('.pg-info'), t = selected, repairBtn = el.querySelector('[data-s="repair"]');
+    const broken = !!t?.userData.broken, home = t && HOMES[t.userData.kind] && !broken ? homeLife(t) : null, tick = (ok) => (ok ? '✓' : '✗');
+    info.hidden = !home && !broken;
+    info.textContent = broken ? 'Broken by the kids' : home ? `${home.n} ${home.n === 1 ? 'resident' : 'residents'} · road ${tick(home.road)} · green ${tick(home.green)} · fun ${tick(home.fun)}` : '';
+    repairBtn.hidden = !broken || mode !== 'herd';
+    if (broken) repairBtn.textContent = `Repair · ${repairCost(t)}c`;
+  };
+  // Broken toys lean, hold no one, and need mending.
+  const repairCost = (t) => Math.max(1, Math.ceil(PRICE[t.userData.kind] / 2));
+  const breakToy = (t) => { t.userData.broken = true; t.rotation.z = TILT; };
+  const mend = (t) => { t.userData.broken = false; t.rotation.z = 0; needs = true; };
+  const repairAll = el.querySelector('.pg-repair');
+  const showRepair = () => {
+    const broken = toys.filter((t) => t.userData.broken), cost = broken.reduce((n, t) => n + repairCost(t), 0);
+    repairAll.hidden = mode !== 'herd' || !broken.length;
+    repairAll.textContent = `Repair all ${broken.length} · ${cost}c`;
+  };
+  repairAll.addEventListener('click', () => {
+    // As many as the coins allow, cheapest first.
+    let left = 0;
+    for (const t of toys.filter((q) => q.userData.broken).sort((a, b) => repairCost(a) - repairCost(b))) { if (herd.coins >= repairCost(t)) { herd.coins -= repairCost(t); mend(t); } else left++; }
+    if (left) toast(`Not enough coins for the last ${left}. Win some more in a battle.`);
+    showRound(); showBox(); showRepair(); showInfo(); growTown(); save();
+  });
   // The little sign at the top left: who lives here, and in kid herd what the town is and what it is growing into.
   const showCensus = () => {
     const n = population(), people = n === 1 ? '1 resident' : `${n} residents`;
@@ -823,7 +888,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     if (!moving) return;
     moving = false;
     clearFolk();
-    for (const t of toys) if (t.userData.mv) { t.position.copy(t.userData.mv.home.p); t.rotation.set(0, t.userData.mv.home.r, 0); delete t.userData.mv; }
+    for (const t of toys) if (t.userData.mv) { t.position.copy(t.userData.mv.home.p); t.rotation.set(0, t.userData.mv.home.r, t.userData.broken ? TILT : 0); delete t.userData.mv; }
     goBtn.textContent = 'Go!'; goBtn.classList.remove('on');
     placeRing(); needs = true;
   };
@@ -835,6 +900,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       if (m.spin) for (const q of m.spin) q.o.rotation[q.a] += q.v * dt;
       if (m.ride) { const r = m.ride, y = r.curve.getPointAt(r.t).y; r.t = (r.t + ((1.6 + (2.6 - y) * 1.5) * dt) / r.length) % 1; rideTo(r); }   // faster downhill
       if (t === drag?.toy) continue;
+      if (u.broken) continue;
       const drives = DRIVES[kind] && net, strolls = kind === 'person';
       if (!drives && !strolls) continue;
       if (!u.mv) { if (t.position.y > 0.05) continue; u.mv = { home: { p: t.position.clone(), r: t.rotation.y }, to: null, from: null, tx: null, wait: Math.random() * 2 }; }
@@ -865,7 +931,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     // Residents: the right number for the homes there are, each on its own little errand.
     if ((folkCheck -= dt) <= 0) {
       folkCheck = 1.5;
-      const homes = toys.filter((t) => HOMES[t.userData.kind] && t.position.y < 0.05), want = Math.min(30, population());   // no more than thirty walking about at once
+      const homes = toys.filter((t) => HOMES[t.userData.kind] && !t.userData.broken && t.position.y < 0.05), want = Math.min(30, population());   // no more than thirty walking about at once
       folk = folk.filter((f) => (toys.includes(f.home) && folk.indexOf(f) < want ? true : (scene.remove(f.mesh), false)));
       while (folk.length < want && homes.length) {
         const home = homes[Math.floor(Math.random() * homes.length)], mesh = makeToy('person', { color: COLOURS[Math.floor(Math.random() * 7)], s: 0.62 });
@@ -1055,6 +1121,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     if (game) return;
     if (!toys.some((t) => !TRAPS.includes(t.userData.kind))) { toast('Build something first, then let them at it.'); return; }
     if (mode === 'herd' && !fav) { toast('Tap the toy you love most and make it your favourite.'); return; }
+    if (mode === 'herd' && fav.userData.broken) { toast('Your favourite is broken. Mend it, or choose another.'); return; }
+    const rent = mode === 'herd' ? Math.floor(population() / 4) : 0;
     const wasAlive = moving;
     stopMotion();
     setMore(false);
@@ -1313,11 +1381,13 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       const up = new THREE.Vector3();
       let ok = 0, total = 0, favOk = false;
       for (const it of g.items) {
-        if (TRAPS.includes(it.toy.userData.kind)) continue;
+        if (TRAPS.includes(it.toy.userData.kind)) { it.stands = true; continue; }
+        if (it.toy.userData.broken) { total++; continue; }   // already broken: it could not be saved
         up.set(0, 1, 0).applyQuaternion(it.toy.quaternion);
         const moved = Math.hypot(it.toy.position.x - it.start.p.x, it.toy.position.z - it.start.p.z);
         const stands = it.toy.userData.kind === 'ball' ? moved < 2 : up.y > 0.8 && moved < 2 && Math.abs(it.toy.position.y - it.start.p.y) < 0.4;
         total++;
+        it.stands = stands;
         if (stands) { ok++; if (it.toy === fav) favOk = true; }
       }
       const pct = Math.round((ok / total) * 100);
@@ -1337,14 +1407,18 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
           res.querySelector('[data-r="new"]').addEventListener('click', () => { restore(); res.hidden = true; el.classList.remove('pg-playing'); load('herd', true); herd.best = best; save(); });
         } else {
           // Coins for how well you fought. They buy the town its next pieces.
-          const pay = [[favOk ? 6 : 0, 'favourite safe'], [g.kicked, 'kids kicked out'], [g.strikes * 2, g.strikes === 1 ? 'strike' : 'strikes'], [Math.floor(ok / 2), 'toys standing'], [2 + herd.round, 'for turning up']].filter(([n]) => n > 0);
+          const pay = [[favOk ? 6 : 0, 'favourite safe'], [g.kicked, 'kids kicked out'], [g.strikes * 2, g.strikes === 1 ? 'strike' : 'strikes'], [Math.floor(ok / 2), 'toys standing'], [rent, 'rent'], [2 + herd.round, 'for turning up']].filter(([n]) => n > 0);
           const won = pay.reduce((n, [c]) => n + c, 0);
           herd.coins += won;
           res.innerHTML = `<strong>${favOk ? 'Your favourite made it!' : 'They got your favourite.'}</strong><span>${tally}${herd.streak > 1 ? `. ${herd.streak} rounds safe in a row` : ''}</span><em>+ ${won} coins</em><span class="pg-pay">${pay.map(([n, what]) => `${n} ${what}`).join(' · ')}</span><div><button data-r="next" class="primary">Build some more</button></div>`;
           res.querySelector('[data-r="next"]').addEventListener('click', () => {
             herd.round++;
-            restore(); showBox(); showRound(); done();
-            toast(`You have ${herd.coins} coins to spend. Round ${herd.round} brings ${herdKids()} kids.`);
+            // Everything goes back where it stood, but what the kids knocked over is now broken.
+            restore();
+            const wrecked = g.items.filter((it) => it.stands === false && !it.toy.userData.broken);
+            for (const it of wrecked) breakToy(it.toy);
+            showBox(); showRound(); showRepair(); done();
+            toast(wrecked.length ? `${wrecked.length} toys are broken and need mending. You have ${herd.coins} coins.` : `Nothing broken! You have ${herd.coins} coins to spend.`);
           });
         }
         showRound();
@@ -1435,6 +1509,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     if (saved?.toys?.length) for (const t of saved.toys) addToy(t.kind, t, { quiet: true });
     else if (m === 'free' && !saved) buildTown(dice(4));   // a first town, so the mat isn't empty (always the same one)
     if (m === 'herd') { fav = toys[saved?.fav] || null; growTown(); }
+    showRepair();
     showBox(); showRound();
     startMotion(true);   // the town is alive unless you stop it
     camera.position.copy(homeView()); controls.target.set(0, 0, 0.5); controls.update();
@@ -1469,6 +1544,15 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     raf = requestAnimationFrame(loop);
     if (moving) { motionStep(now || performance.now()); needs = true; }
     // The marker over your favourite follows it, even when it is sent flying.
+    // A red cross floats over anything broken.
+    let nb = 0;
+    for (const t of toys) if (t.userData.broken) {
+      const mark = crosses[nb] || (crosses[nb] = scene.add(cross.clone()) && scene.children[scene.children.length - 1]);
+      const b = boxOf(t);
+      mark.visible = true; mark.position.set((b.min.x + b.max.x) / 2, b.max.y + 0.5, (b.min.z + b.max.z) / 2); mark.quaternion.copy(camera.quaternion);
+      nb++;
+    }
+    for (let i = nb; i < crosses.length; i++) crosses[i].visible = false;
     star.visible = !!fav;
     if (fav) { const b = boxOf(fav), y = b.max.y + 0.7 + Math.sin((now || 0) / 300) * 0.08; if (star.position.x !== fav.position.x || star.position.z !== fav.position.z || Math.abs(star.position.y - y) > 0.002) { star.position.set((b.min.x + b.max.x) / 2, y, (b.min.z + b.max.z) / 2); star.rotation.y = (now || 0) / 500; needs = true; } }
     const moved = walk ? walkStep(now || performance.now()) : controls.update();

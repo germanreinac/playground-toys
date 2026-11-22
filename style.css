@@ -196,3 +196,11 @@ button { font: inherit; color: inherit; }
   #toast { top: 176px; }
   #playground.pg-playing .pg-round { display: none; }
 }
+
+/* What a home has around it, and mending what the kids broke. */
+.pg-info { font: 600 12px var(--font-second); color: var(--text-strong); white-space: nowrap; padding: 0 6px; }
+.pg-info[hidden] { display: none; }
+#playground .pg-repair { position: absolute; left: 16px; top: 100px; z-index: 2; height: 30px; border-color: #ff5a4f; color: #fff; background: #ff5a4f; }
+#playground .pg-repair[hidden], #playground.pg-playing .pg-repair, #playground.pg-walking .pg-repair { display: none; }
+#playground [data-s="repair"] { border-color: #ff5a4f; color: #ff5a4f; }
+@media (max-width: 700px) { #playground .pg-repair { left: 12px; top: 172px; } .pg-info { flex-basis: 100%; text-align: center; white-space: normal; } }
