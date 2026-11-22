@@ -365,6 +365,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       <i class="pg-stick" data-stick="L"><b></b></i><i class="pg-stick" data-stick="R"><b></b></i>
     </div>
     <div class="pg-walkbar" hidden><button data-w="exit" title="Back to building (Esc)">Back to building</button><button data-w="release" class="primary">Release the kids!</button></div>
+    <button class="pg-foot" title="Kick whoever is in front of you. Nobody there? Punt the nearest toy. (F)" hidden>Kick</button>
     <div class="pg-result" hidden></div>`;
   document.body.appendChild(el);
 
@@ -686,6 +687,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     if (walk) {
       if (e.key === 'Escape') exitWalk();
       else if (e.code === 'Space' && game) { e.preventDefault(); shoo(); }
+      else if (e.code === 'KeyF' && game) footKick();
       else { walkKeys.add(e.code); if (e.key.startsWith('Arrow')) e.preventDefault(); }
       return;
     }
@@ -1046,13 +1048,20 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     const lx = sticks.R.x + k('ArrowRight') - k('ArrowLeft'), ly = sticks.R.y;
     const m = Math.hypot(mx, my);
     if (m > 1) { mx /= m; my /= m; }
+    if (!mx && !my) { walk.vx = 0; walk.vz = 0; }
     if (!mx && !my && !lx && !ly && !walk.fresh) return false;
     walk.fresh = false;
     walk.yaw -= lx * 2.3 * dt;
     walk.pitch = Math.max(-1.2, Math.min(1.2, walk.pitch - ly * 1.5 * dt));
     const sp = (k('ShiftLeft', 'ShiftRight') ? 10 : 5) * dt, sin = Math.sin(walk.yaw), cos = Math.cos(walk.yaw);
-    walk.x = Math.max(-MAT_W / 2 - 12, Math.min(MAT_W / 2 + 12, walk.x + (sin * my + cos * mx) * sp));
-    walk.z = Math.max(-MAT_D / 2 - 12, Math.min(MAT_D / 2 + 12, walk.z + (cos * my - sin * mx) * sp));
+    if (game?.me) {
+      // In a battle you are a small body among giants: you run faster, and you bump into things.
+      const v = k('ShiftLeft', 'ShiftRight') ? 11 : 7.5;
+      walk.vx = (sin * my + cos * mx) * v; walk.vz = (cos * my - sin * mx) * v;
+    } else {
+      walk.x = Math.max(-MAT_W / 2 - 12, Math.min(MAT_W / 2 + 12, walk.x + (sin * my + cos * mx) * sp));
+      walk.z = Math.max(-MAT_D / 2 - 12, Math.min(MAT_D / 2 + 12, walk.z + (cos * my - sin * mx) * sp));
+    }
     camera.position.set(walk.x, EYE, walk.z);
     camera.rotation.set(walk.pitch, walk.yaw, 0, 'YXZ');
     return true;
@@ -1093,7 +1102,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   walkBar.querySelector('[data-w="release"]').addEventListener('click', () => releaseKids());
 
   // ---------- Kid test ----------
-  let game = null, shoo = () => {}, kick = () => false, kickUp = () => {};
+  let game = null, shoo = () => {}, kick = () => false, kickUp = () => {}, footKick = () => {};
+  el.querySelector('.pg-foot').addEventListener('click', () => footKick());
   const KID_COLOURS = ['#ff3fa9', '#3d7bff', '#ffd23f', '#ff5a4f', '#3ecf8e', '#ff9a3d'];
   // Three kinds of kid: the usual one, a runner in a cap (small, fast, goes straight for your favourite)
   // and a big kid (slow, strong, and one kick is not enough).
@@ -1218,7 +1228,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     // You only have three kicks, and they come back slowly: one kid at a time will not do it.
     const lv = mode === 'herd' ? herd.level : 0, KICKS = 3 + (lv >= 1) + (lv >= 3) + (lv >= 4), REFILL = 2.6;
     game.kicks = KICKS; game.refill = 0;
-    const showKicks = () => { kickBar.textContent = `${'●'.repeat(game.kicks)}${'○'.repeat(KICKS - game.kicks)}${game.kicked ? `  ${game.kicked} out` : '  Swipe a kid into the others'}`; kickBar.classList.toggle('wait', !game.kicks); };
+    const showKicks = () => { kickBar.textContent = `${'●'.repeat(game.kicks)}${'○'.repeat(KICKS - game.kicks)}${game.kicked ? `  ${game.kicked} out` : walk ? '  Face a kid and kick' : '  Swipe a kid into the others'}`; kickBar.classList.toggle('wait', !game.kicks); };
     kickBar.hidden = false; showKicks();
     let lastKick = -9, aimKid = null;
     const head = (k) => new THREE.Vector3(k.body.position.x, k.body.position.y + 3.2, k.body.position.z);
@@ -1254,7 +1264,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       let o = ray.intersectObjects(live.map((k) => k.mesh), true)[0]?.object;
       while (o && !live.some((k) => k.mesh === o)) o = o.parent;
       if (!o) return false;
-      aimKid = { k: live.find((q) => q.mesh === o), x: e.clientX, y: e.clientY, id: e.pointerId };
+      const k = live.find((q) => q.mesh === o);
+      if (walk && Math.hypot(k.body.position.x - walk.x, k.body.position.z - walk.z) > REACH) { pop(head(k), 'Too far!'); return true; }   // on foot you have to get close
+      aimKid = { k, x: e.clientX, y: e.clientY, id: e.pointerId };
       return true;
     };
     kickUp = (e) => {
@@ -1276,6 +1288,35 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       launch(k, dx / d, dz / d, swipe, 0);
       shake();
     };
+    // On foot: kick whoever is in front of you. With nobody in reach, you punt the nearest toy instead,
+    // and a toy at speed takes kids out too (at the price of the toy).
+    const REACH = 6.5;
+    let lastPunt = -9;
+    const ahead = (x, z, far) => { const dx = x - walk.x, dz = z - walk.z, d = Math.hypot(dx, dz) || 1; return d > far ? 9 : Math.acos(Math.max(-1, Math.min(1, (dx * -Math.sin(walk.yaw) + dz * -Math.cos(walk.yaw)) / d))); };
+    footKick = () => {
+      if (!game || game.leaving || !walk) return;
+      const fx = -Math.sin(walk.yaw), fz = -Math.cos(walk.yaw);
+      let kid = null, best = 0.75;
+      for (const k of kids) { if (!k.in || k.out || k.fly) continue; const a = ahead(k.body.position.x, k.body.position.z, REACH); if (a < best) { best = a; kid = k; } }
+      if (kid) {
+        if (game.t - lastKick < 0.25) return;
+        if (!game.kicks) { pop(head(kid), 'No kicks left!'); return; }
+        game.kicks--; lastKick = game.t;
+        launch(kid, fx, fz, true, 0);
+        showKicks(); shake();
+        return;
+      }
+      let toy = null; best = 0.7;
+      for (const it of items) { const a = ahead(it.body.position.x, it.body.position.z, 4); if (a < best) { best = a; toy = it; } }
+      if (!toy || game.t - lastPunt < 0.4) return;
+      lastPunt = game.t;
+      toy.body.velocity.set(fx * 24, 5, fz * 24);
+      toy.body.angularVelocity.set((Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8, (Math.random() - 0.5) * 8);
+      toy.punt = game.t; toy.hits = 0;
+      pop(new THREE.Vector3(toy.body.position.x, toy.body.position.y + 1.5, toy.body.position.z), 'Punt!');
+      shake();
+    };
+    const footBtn = el.querySelector('.pg-foot');
     freezeBtn.onclick = () => { if (!game || game.leaving || game.freeze >= 0) return; game.freeze = game.t + 3.2; freezeBtn.disabled = true; pop(new THREE.Vector3(0, 4, 0), 'Statues!'); };
     lureBtn.onclick = () => { if (!game || game.leaving || game.lure || game.armed) return; game.armed = true; lureBtn.classList.add('on'); kickBar.textContent = 'Tap the carpet to drop the ice cream'; };
     const tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3();
@@ -1352,7 +1393,20 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
         }
         k.face = Math.atan2(k.body.velocity.x, k.body.velocity.z);
       }
+      // A punted toy is a missile: any kid it reaches at speed is out.
+      for (const it of items) {
+        if (it.punt === undefined || game.t - it.punt > 2.5 || it.body.position.y > 3.5) continue;
+        const v = it.body.velocity, sp = Math.hypot(v.x, v.z);
+        if (sp < 7) continue;
+        for (const q of kids) if (q.in && !q.out && !q.fly && Math.hypot(q.body.position.x - it.body.position.x, q.body.position.z - it.body.position.z) < KID_R + 1) launch(q, v.x / sp, v.z / sp, true, it.hits++);
+      }
+      // You, when you are down in the street: a small body that the giants (and the toys) can push about.
+      if (walk && !game.me) { game.me = new CANNON.Body({ mass: 5, material: kidMat, shape: new CANNON.Sphere(0.55), linearDamping: 0.2, fixedRotation: true }); game.me.position.set(walk.x, 0.55, walk.z); world.addBody(game.me); showKicks(); }
+      else if (!walk && game.me) { world.removeBody(game.me); game.me = null; showKicks(); }
+      if (game.me) { game.me.velocity.x = walk.vx || 0; game.me.velocity.z = walk.vz || 0; }
+      footBtn.hidden = !walk || game.leaving;
       world.step(1 / 60, dt, 3);
+      if (game.me && walk) { walk.x = game.me.position.x; walk.z = game.me.position.z; walk.fresh = true; }
       for (const it of items) {
         tmpQ.set(it.body.quaternion.x, it.body.quaternion.y, it.body.quaternion.z, it.body.quaternion.w);
         tmpV.copy(it.centre).applyQuaternion(tmpQ);
@@ -1375,7 +1429,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       game = null;
       clock.hidden = true;
       for (const k of g.kids) scene.remove(k.mesh);
-      scene.remove(wave); powers.hidden = true; kickBar.hidden = true;
+      scene.remove(wave); powers.hidden = true; kickBar.hidden = true; footBtn.hidden = true;
+      if (walk) { walk.vx = 0; walk.vz = 0; }
       if (g.lure?.mesh) scene.remove(g.lure.mesh);
       // Still standing: upright, and close to where you put it. Traps don't count.
       const up = new THREE.Vector3();
@@ -1407,10 +1462,10 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
           res.querySelector('[data-r="new"]').addEventListener('click', () => { restore(); res.hidden = true; el.classList.remove('pg-playing'); load('herd', true); herd.best = best; save(); });
         } else {
           // Coins for how well you fought. They buy the town its next pieces.
-          const pay = [[favOk ? 6 : 0, 'favourite safe'], [g.kicked, 'kids kicked out'], [g.strikes * 2, g.strikes === 1 ? 'strike' : 'strikes'], [Math.floor(ok / 2), 'toys standing'], [rent, 'rent'], [2 + herd.round, 'for turning up']].filter(([n]) => n > 0);
+          const pay = [[favOk ? 6 : 0, 'favourite safe'], [g.kicked, 'kids kicked out'], [g.strikes * 2, g.strikes === 1 ? '1 strike' : `${g.strikes} strikes`], [Math.floor(ok / 2), 'toys standing'], [rent, 'rent'], [2 + herd.round, 'for turning up']].filter(([n]) => n > 0);
           const won = pay.reduce((n, [c]) => n + c, 0);
           herd.coins += won;
-          res.innerHTML = `<strong>${favOk ? 'Your favourite made it!' : 'They got your favourite.'}</strong><span>${tally}${herd.streak > 1 ? `. ${herd.streak} rounds safe in a row` : ''}</span><em>+ ${won} coins</em><span class="pg-pay">${pay.map(([n, what]) => `${n} ${what}`).join(' · ')}</span><div><button data-r="next" class="primary">Build some more</button></div>`;
+          res.innerHTML = `<strong>${favOk ? 'Your favourite made it!' : 'They got your favourite.'}</strong><span>${tally}${herd.streak > 1 ? `. ${herd.streak} rounds safe in a row` : ''}</span><em>+ ${won} coins</em><span class="pg-pay">${pay.map(([n, what]) => `${what} +${n}`).join(' · ')}</span><div><button data-r="next" class="primary">Build some more</button></div>`;
           res.querySelector('[data-r="next"]').addEventListener('click', () => {
             herd.round++;
             // Everything goes back where it stood, but what the kids knocked over is now broken.

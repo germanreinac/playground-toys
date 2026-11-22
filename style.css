@@ -204,3 +204,9 @@ button { font: inherit; color: inherit; }
 #playground .pg-repair[hidden], #playground.pg-playing .pg-repair, #playground.pg-walking .pg-repair { display: none; }
 #playground [data-s="repair"] { border-color: #ff5a4f; color: #ff5a4f; }
 @media (max-width: 700px) { #playground .pg-repair { left: 12px; top: 172px; } .pg-info { flex-basis: 100%; text-align: center; white-space: normal; } }
+
+/* Fighting on foot: one big button for your foot. */
+#playground .pg-foot { position: absolute; right: 22px; bottom: 150px; z-index: 2; width: 92px; height: 92px; padding: 0; border: 0; border-radius: 50%; background: var(--accent); color: #fff; font: 700 22px var(--font-display); box-shadow: 0 10px 30px rgba(0, 0, 0, 0.4); touch-action: manipulation; }
+#playground .pg-foot[hidden] { display: none; }
+#playground .pg-foot:active { transform: scale(0.92); }
+@media (pointer: coarse) { #playground .pg-foot { bottom: calc(262px + env(safe-area-inset-bottom, 0px)); right: 16px; width: 84px; height: 84px; } }
