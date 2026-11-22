@@ -25,7 +25,7 @@ const SIZES = { small: [20, 20], medium: [30, 20], big: [40, 30], huge: [60, 40]
 const KID = 5;                  // the kids are real children: giants next to the toys
 const KID_R = 1.2;              // how wide a kid is when bumping into things
 
-const KEY = (id) => `playground.scene.${id}`;
+const KEY = (id, mode = 'free') => (mode === 'herd' ? `playground.herd.${id}` : `playground.scene.${id}`);
 
 // ---------- The carpet ----------
 
@@ -189,9 +189,14 @@ function rideTo(ride) {
   }
 }
 // The toy box is sorted into four drawers.
-const DRAWERS = { Blocks: ['block', 'brick', 'tube', 'cone', 'ball', 'arch', 'ramp', 'letter'], Town: ['box', 'house', 'car', 'truck', 'bus', 'tree', 'pine', 'person'], Cardboard: ['carton', 'cereal', 'shoebox', 'roll'], Fair: ['ferris', 'carousel', 'coaster', 'tent', 'balloons'] };
+const DRAWERS = { Blocks: ['block', 'brick', 'tube', 'cone', 'ball', 'arch', 'ramp', 'letter'], Town: ['box', 'house', 'car', 'truck', 'bus', 'tree', 'pine', 'person'], Cardboard: ['carton', 'cereal', 'shoebox', 'roll'], Fair: ['ferris', 'carousel', 'coaster', 'tent', 'balloons'], Traps: ['jam', 'tramp', 'jar'] };
+// Kid herd mode: what is in the box at the start, and what a round can win you.
+const START_BOX = { block: 3, brick: 2, carton: 2, house: 1, box: 1, tree: 2, car: 1, jam: 1 };
+const PRIZES = { common: ['block', 'brick', 'carton', 'cereal', 'shoebox', 'tree', 'pine', 'car', 'person', 'cone', 'tube', 'arch', 'roll'], good: ['house', 'box', 'truck', 'bus', 'tent', 'balloons', 'carousel'], traps: ['jam', 'tramp', 'jar'] };
 // A dice you can seed, so the first town is always the same one.
 const dice = (seed) => () => { seed = (seed + 0x6d2b79f5) | 0; let t = Math.imul(seed ^ (seed >>> 15), 1 | seed); t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t; return ((t ^ (t >>> 14)) >>> 0) / 4294967296; };
+
+const TRAPS = ['jam', 'tramp', 'jar'];
 
 const TOYS = {
   block: { label: 'Block', colour: '#ff3fa9', make: (m) => [part(new THREE.BoxGeometry(1, 1, 1), m, 0, 0.5, 0)] },
@@ -268,6 +273,10 @@ const TOYS = {
     });
     return out;
   } },
+  // Traps. They only do something to kids: jam slows them down, a trampoline throws them off, a cookie jar is all they can think about.
+  jam: { label: 'Jam puddle', colour: '#ff5a4f', make: (m) => { const blob = part(new THREE.CylinderGeometry(1.5, 1.6, 0.07, 28), m, 0, 0.035, 0); blob.castShadow = false; const shine = part(new THREE.CylinderGeometry(0.5, 0.5, 0.02, 18), lambert('#ffd0ea'), -0.5, 0.075, -0.4); shine.castShadow = false; shine.scale.z = 0.5; return [blob, shine]; } },
+  tramp: { label: 'Trampoline', colour: '#3d7bff', make: (m) => { const out = [part(new THREE.TorusGeometry(1.05, 0.11, 8, 28), m, 0, 0.5, 0).rotateX(Math.PI / 2), part(new THREE.CylinderGeometry(1, 1, 0.04, 28), lambert('#24222e'), 0, 0.5, 0)]; for (let i = 0; i < 4; i++) out.push(part(new THREE.CylinderGeometry(0.05, 0.05, 0.5, 6), lambert('#f6f3ff'), Math.cos(i * 1.57 + 0.78) * 0.95, 0.25, Math.sin(i * 1.57 + 0.78) * 0.95)); return out; } },
+  jar: { label: 'Cookie jar', colour: '#ffd23f', make: (m) => { const out = [part(new THREE.CylinderGeometry(0.5, 0.45, 0.9, 20), glass, 0, 0.45, 0), part(new THREE.CylinderGeometry(0.54, 0.54, 0.14, 20), m, 0, 0.97, 0), part(new THREE.SphereGeometry(0.13, 10, 8), m, 0, 1.1, 0)]; for (const [x, y, z] of [[0.1, 0.25, 0.48], [-0.2, 0.5, 0.44], [0.25, 0.62, 0.42]]) out.push(part(new THREE.CylinderGeometry(0.15, 0.15, 0.05, 10), lambert('#a86b3c'), x, y, z).rotateX(Math.PI / 2)); return out; } },
   letter: { label: 'Letter', colour: '#ffd23f', make: (m, g, opts) => { m.map = letterTexture(opts.letter || 'A'); return [part(new THREE.BoxGeometry(0.9, 0.9, 0.9), m, 0, 0.45, 0)]; } },
 };
 
@@ -297,14 +306,15 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   el.innerHTML = `
     <div class="pg-top">
       <strong>Playground</strong>
+      <span class="pg-mode"><button data-m="free" class="on" title="Build anything, with every toy">Free play</button><button data-m="herd" title="A small box of toys, a favourite to protect, and a bigger herd every round">Kid herd</button></span>
       <span class="pg-hint">Pick a toy. Drag toys to move them (they stack). Drag the floor to look around.</span>
       <span class="pg-space"></span>
       <button data-a="lock" title="Lock the toys in place, so you can look around freely (L)">Lock toys</button>
       <select data-a="kids" title="How many kids"><option value="3">A few kids</option><option value="6" selected>A class of kids</option><option value="10">Far too many kids</option></select>
+      <span class="pg-round" hidden></span>
       <button data-a="release" class="primary">Release the kids!</button>
       <i class="pg-div"></i>
       <button data-a="go" title="Set the town moving: cars drive, people stroll, the fair turns">Go!</button>
-      <button data-a="top">From above</button>
       <button data-a="walk" title="Walk around inside your town">Walk</button>
       <button data-a="more" title="Carpet, random town, clear">More</button>
       <button data-a="close" title="Close (Esc)">✕</button>
@@ -312,15 +322,17 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     <div class="pg-more" hidden>
       <select data-a="carpet" title="The carpet"><option value="town">Town carpet</option><option value="grid">Checker carpet</option><option value="plain">Plain carpet</option></select>
       <select data-a="size" title="How big the carpet is"><option value="small">Small carpet</option><option value="medium">Medium carpet</option><option value="big">Big carpet</option><option value="huge">Huge carpet</option></select>
+      <button data-a="top">From above</button>
       <button data-a="random" title="Build a whole random town">Random town</button>
       <button data-a="clear">Clear</button>
+      <button data-a="restart" title="Begin kid herd mode again from round 1">Start over</button>
       <button data-a="shot">${addImage ? 'Put on board' : 'Save picture'}</button>
     </div>
     <div class="pg-sel" hidden>
       <span class="pg-colours"></span>
       <button data-s="left" title="Turn left (Q)">⟲</button><button data-s="right" title="Turn right (E)">⟳</button>
       <button data-s="smaller" title="Smaller ([)">−</button><button data-s="bigger" title="Bigger (])">+</button>
-      <button data-s="draw" title="Draw windows and a door on it with a marker" hidden>Draw windows</button><button data-s="copy" title="Another one (Ctrl/⌘ + D)">Copy</button><button data-s="delete" title="Put it away (Delete)">Remove</button>
+      <button data-s="fav" title="Your favourite toy: the one the kids must not knock over">Favourite</button><button data-s="draw" title="Draw windows and a door on it with a marker" hidden>Draw windows</button><button data-s="copy" title="Another one (Ctrl/⌘ + D)">Copy</button><button data-s="delete" title="Put it away (Delete)">Remove</button>
     </div>
     <div class="pg-box"></div>
     <div class="pg-clock" hidden></div>
@@ -376,6 +388,10 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   const toys = [];
   let selected = null, drag = null, needs = true, raf = 0, nextLetter = 0, locked = false;
   const state = { carpet: 'town', size: 'medium' };
+  let mode = 'free', herd = null, fav = null;   // herd: { round, box: { kind: how many }, streak, best }
+  const star = new THREE.Mesh(new THREE.ConeGeometry(0.28, 0.5, 4), new THREE.MeshBasicMaterial({ color: '#ff3fa9' }));   // hovers over your favourite
+  star.rotation.x = Math.PI; star.scale.setScalar(1.5); star.visible = false;
+  scene.add(star);
   const ring = new THREE.Mesh(new THREE.RingGeometry(0.9, 1.02, 48), new THREE.MeshBasicMaterial({ color: '#ff3fa9', transparent: true, opacity: 0.95, depthTest: false }));
   ring.rotation.x = -Math.PI / 2; ring.visible = false; ring.renderOrder = 5;
   scene.add(ring);
@@ -400,7 +416,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   const save = () => {
     const at = (t) => t.userData.mv?.home ?? { p: t.position, r: t.rotation.y };   // a toy that is driving about is saved where it started
     const data = { carpet: state.carpet, size: state.size, toys: toys.map((t) => ({ kind: t.userData.kind, x: +at(t).p.x.toFixed(3), y: +at(t).p.y.toFixed(3), z: +at(t).p.z.toFixed(3), r: +at(t).r.toFixed(3), s: +t.scale.x.toFixed(3), color: `#${t.userData.paint.color.getHexString()}`, ...(t.userData.letter ? { letter: t.userData.letter } : {}), ...(t.userData.drawn ? { drawn: 1 } : {}) })) };
-    try { localStorage.setItem(KEY(boardId), JSON.stringify(data)); } catch {}
+    if (mode === 'herd') Object.assign(data, { herd, fav: toys.indexOf(fav) });
+    try { localStorage.setItem(KEY(boardId, mode), JSON.stringify(data)); localStorage.setItem(`playground.mode.${boardId}`, mode); } catch {}
   };
 
   // --- toys
@@ -413,6 +430,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   };
   // Where a toy rests at this spot: on the carpet, or on top of whatever is under it.
   const restingHeight = (toy, x, z) => {
+    if (toy.userData.kind === 'jam') return 0;   // jam is spilt on the floor, never on a roof
     let y = 0;
     for (const o of toys) {
       if (o === toy) continue;
@@ -425,6 +443,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     selected = toy;
     ring.visible = !!toy;
     el.querySelector('.pg-sel').hidden = !toy;
+    const favBtn = el.querySelector('[data-s="fav"]');
+    favBtn.hidden = mode !== 'herd' || TRAPS.includes(toy?.userData.kind);
+    favBtn.classList.toggle('on', !!toy && toy === fav);
     const drawBtn = el.querySelector('[data-s="draw"]');
     drawBtn.hidden = !toy?.userData.paint.userData.card;
     drawBtn.textContent = toy?.userData.drawn ? 'Rub out' : 'Draw windows';
@@ -455,7 +476,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     if (!toy) return null;
     if (opts.x === undefined) {
       // Somewhere near what you're looking at, not on top of the last one.
-      const a = toys.length * 2.4, r = 0.8 + (toys.length % 5) * 0.55;
+      const a = toys.length * 2.4, r = 1.4 + (toys.length % 6) * 0.9;
       toy.position.set(controls.target.x + Math.cos(a) * r, 0, controls.target.z + Math.sin(a) * r);
       toy.position.y = restingHeight(toy, toy.position.x, toy.position.z);
     }
@@ -465,6 +486,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     return toy;
   };
   const removeToy = (toy) => {
+    if (mode === 'herd') { herd.box[toy.userData.kind] = (herd.box[toy.userData.kind] || 0) + 1; if (toy === fav) fav = null; showBox(); }   // back in the box
     scene.remove(toy);
     toys.splice(toys.indexOf(toy), 1);
     if (selected === toy) select(null);
@@ -480,17 +502,30 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   for (const name of Object.keys(DRAWERS)) {
     const tab = document.createElement('button');
     tab.className = 'pg-tab'; tab.dataset.tab = name; tab.textContent = name;
-    tab.addEventListener('click', () => openDrawer(name));
+    tab.addEventListener('click', () => { drawer = name; openDrawer(name); });
     tabRow.appendChild(tab);
   }
   for (const [name, kinds] of Object.entries(DRAWERS)) for (const kind of kinds) {
     const def = TOYS[kind], b = document.createElement('button');
-    b.dataset.drawer = name;
+    b.dataset.drawer = name; b.dataset.kind = kind;
     b.innerHTML = `<i style="--c:${def.colour}" data-shape="${kind}"></i><span>${def.label}</span>`;
-    b.addEventListener('click', () => addToy(kind));
+    b.addEventListener('click', () => {
+      if (mode === 'herd') { if (!(herd.box[kind] > 0)) return; herd.box[kind]--; }
+      addToy(kind);
+      showBox();
+    });
     toyRow.appendChild(b);
   }
-  openDrawer('Town');
+  // In kid herd mode the box holds only what you own, with how many of each.
+  let drawer = 'Town';
+  const empty = toyRow.appendChild(Object.assign(document.createElement('span'), { className: 'pg-empty', textContent: 'Your box is empty. Release the kids!', hidden: true }));
+  const showBox = () => {
+    tabRow.hidden = mode === 'herd';
+    if (mode !== 'herd') { empty.hidden = true; for (const b of toyRow.querySelectorAll('button')) b.querySelector('span').textContent = TOYS[b.dataset.kind].label; openDrawer(drawer); return; }
+    let any = false;
+    for (const b of toyRow.querySelectorAll('button')) { const n = herd.box[b.dataset.kind] || 0; b.hidden = !n; any = any || n > 0; b.querySelector('span').textContent = `${TOYS[b.dataset.kind].label} × ${n}`; }
+    empty.hidden = any;
+  };
   // Surprise: a random toy, somewhere on the carpet.
   const surprise = document.createElement('button');
   surprise.className = 'pg-surprise';
@@ -518,6 +553,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     right: () => { selected.rotation.y -= Math.PI / 4; },
     smaller: () => { selected.scale.setScalar(Math.max(0.3, selected.scale.x / 1.2)); },
     bigger: () => { selected.scale.setScalar(Math.min(6, selected.scale.x * 1.2)); },
+    fav: () => { fav = fav === selected ? null : selected; el.querySelector('[data-s="fav"]').classList.toggle('on', fav === selected); },
     draw: () => {
       const u = selected.userData, m = u.paint;
       u.drawn = !u.drawn;
@@ -527,7 +563,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     copy: () => { const t = selected; addToy(t.userData.kind, { drawn: t.userData.drawn, color: `#${t.userData.paint.color.getHexString()}`, r: t.rotation.y, s: t.scale.x, letter: t.userData.letter, x: t.position.x + 1.2, z: t.position.z + 0.6, y: 0 }); selected.position.y = restingHeight(selected, selected.position.x, selected.position.z); },
     delete: () => removeToy(selected),
   };
-  const run = (name) => { if (!selected) return; act[name](); placeRing(); needs = true; save(); };
+  const run = (name) => { if (!selected) return; if (mode === 'herd' && ['copy', 'smaller', 'bigger'].includes(name)) return; act[name](); placeRing(); needs = true; save(); };
   el.querySelectorAll('[data-s]').forEach((b) => b.addEventListener('click', () => run(b.dataset.s)));
 
   // --- moving toys with the mouse
@@ -911,7 +947,8 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   };
   const releaseKids = () => {
     if (game) return;
-    if (!toys.length) { toast('Build something first, then let them at it.'); return; }
+    if (!toys.some((t) => !TRAPS.includes(t.userData.kind))) { toast('Build something first, then let them at it.'); return; }
+    if (mode === 'herd' && !fav) { toast('Tap the toy you love most and make it your favourite.'); return; }
     stopMotion();
     setMore(false);
     select(null);
@@ -926,7 +963,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     const floorMat = new CANNON.Material({ friction: 1 }), kidMat = new CANNON.Material({ friction: 0 });
     world.addBody(new CANNON.Body({ mass: 0, material: floorMat, collisionFilterGroup: 2, shape: new CANNON.Plane(), quaternion: new CANNON.Quaternion().setFromEuler(-Math.PI / 2, 0, 0) }));
     // Every toy becomes a solid box the size of the toy (a ball becomes a ball).
-    const items = toys.map((toy) => {
+    // Jam and trampolines stay put and only act on kids; everything else can be knocked about.
+    const traps = toys.filter((t) => t.userData.kind === 'jam' || t.userData.kind === 'tramp').map((toy) => ({ toy, kind: toy.userData.kind, r: (toy.userData.kind === 'jam' ? 1.6 : 1.1) * toy.scale.x, ready: 0 }));
+    const items = toys.filter((t) => t.userData.kind !== 'jam' && t.userData.kind !== 'tramp').map((toy) => {
       const start = { p: toy.position.clone(), q: toy.quaternion.clone() };
       const q = toy.quaternion.clone();
       toy.quaternion.identity();
@@ -938,7 +977,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       const centre = b.getCenter(new THREE.Vector3()).sub(toy.position);   // from its foot to its middle, unturned
       const kind = toy.userData.kind;
       const shape = kind === 'ball' ? new CANNON.Sphere(half.y) : new CANNON.Box(new CANNON.Vec3(Math.max(0.05, half.x), Math.max(0.05, half.y), Math.max(0.05, half.z)));
-      const heavy = { house: 1.6, box: 1.1, truck: 1.3, bus: 1.3, tree: 0.6, pine: 0.6, person: 0.5, ball: 0.5, carton: 0.35, cereal: 0.35, shoebox: 0.35, roll: 0.35, ferris: 0.15, carousel: 0.4, coaster: 0.12, tent: 0.5, balloons: 0.2 }[kind] || 1;
+      const heavy = { house: 1.6, box: 1.1, truck: 1.3, bus: 1.3, tree: 0.6, pine: 0.6, person: 0.5, ball: 0.5, carton: 0.35, cereal: 0.35, shoebox: 0.35, roll: 0.35, ferris: 0.15, carousel: 0.4, coaster: 0.12, tent: 0.5, balloons: 0.2, jar: 0.8 }[kind] || 1;
       const body = new CANNON.Body({ mass: Math.max(0.4, half.x * half.y * half.z * 8 * 0.9 * heavy), shape, linearDamping: 0.08, angularDamping: 0.25 });
       const c = centre.clone().applyQuaternion(q);
       body.position.set(toy.position.x + c.x, toy.position.y + c.y, toy.position.z + c.z);
@@ -946,8 +985,9 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       world.addBody(body);
       return { toy, body, centre, start };
     });
+    const lures = items.filter((it) => it.toy.userData.kind === 'jar');
     // The kids come in from every side of the carpet.
-    const count = Math.round((Number(el.querySelector('[data-a="kids"]').value) || 6) * Math.sqrt((MAT_W * MAT_D) / 600));   // more kids for a bigger carpet
+    const count = mode === 'herd' ? herdKids() : Math.round((Number(el.querySelector('[data-a="kids"]').value) || 6) * Math.sqrt((MAT_W * MAT_D) / 600));   // more kids for a bigger carpet
     const kids = [];
     for (let i = 0; i < count; i++) {
       const a = (i / count) * Math.PI * 2 + Math.random() * 0.5;
@@ -980,7 +1020,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
         const a = Math.atan2(k.body.position.z - cz, k.body.position.x - cx) + (Math.random() - 0.5) * 1.2, out = 16 + Math.random() * 9;
         k.body.velocity.set(Math.cos(a) * out, 20 + Math.random() * 9, Math.sin(a) * out);
         k.body.collisionFilterMask = 2; k.body.linearDamping = 0.02;
-        k.fly = true; k.spin = (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 6); k.target = null;
+        k.fly = true; k.flyAt = game.t; k.spin = (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 6); k.target = null;
       }
     };
     const tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3();
@@ -1001,24 +1041,39 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       for (const k of kids) {
         if (k.fly) {
           // Blown into the air: nothing to steer until they land.
-          if (game.t - game.shoo > 0.4 && k.body.position.y < KID_R + 0.1) { k.fly = false; k.body.collisionFilterMask = -1; k.body.linearDamping = 0.3; }
+          if (game.t - k.flyAt > 0.4 && k.body.position.y < KID_R + 0.1) { k.fly = false; k.body.collisionFilterMask = -1; k.body.linearDamping = 0.3; }
           else continue;
         }
         // Pick something to go for, and change your mind often.
-        if (!away && (!k.target || game.t > k.until)) { k.target = items[Math.floor(Math.random() * items.length)]; k.until = game.t + 2.2 + Math.random() * 2.5; }
+        // Traps: a trampoline throws a kid off the carpet, jam makes every step slow and sticky.
+        let sticky = 1;
+        for (const tr of traps) {
+          if (Math.hypot(k.body.position.x - tr.toy.position.x, k.body.position.z - tr.toy.position.z) > tr.r + KID_R * 0.5) continue;
+          if (tr.kind === 'jam') sticky = 0.22;
+          else if (game.t > tr.ready && !game.leaving && k.body.position.y < KID_R + 0.3) {
+            tr.ready = game.t + 0.5;
+            const a = Math.atan2(k.body.position.z - tr.toy.position.z, k.body.position.x - tr.toy.position.x) + (Math.random() - 0.5), out = 9 + Math.random() * 5;
+            k.body.velocity.set(Math.cos(a) * out, 15 + Math.random() * 5, Math.sin(a) * out);
+            k.body.collisionFilterMask = 2; k.body.linearDamping = 0.02;
+            k.fly = true; k.flyAt = game.t; k.spin = (Math.random() < 0.5 ? -1 : 1) * (4 + Math.random() * 5); k.target = null;
+          }
+        }
+        if (k.fly) continue;
+        // A cookie jar is hard to ignore.
+        if (!away && (!k.target || game.t > k.until)) { k.target = lures.length && Math.random() < 0.6 ? lures[Math.floor(Math.random() * lures.length)] : items[Math.floor(Math.random() * items.length)]; k.until = game.t + 2.2 + Math.random() * 2.5; }
         let tx, tz;
         if (away) { const a = Math.atan2(k.body.position.z, k.body.position.x); tx = Math.cos(a) * 80; tz = Math.sin(a) * 80; }
         else { tx = k.target.body.position.x; tz = k.target.body.position.z; }
         const dx = tx - k.body.position.x, dz = tz - k.body.position.z, d = Math.hypot(dx, dz) || 1;
         const off = Math.abs(k.body.position.x) > MAT_W / 2 + 2 || Math.abs(k.body.position.z) > MAT_D / 2 + 2;   // off the carpet: hurry back
-        const sp = k.speed * (game.leaving ? 1.6 : off ? 2.6 : 1);
+        const sp = k.speed * (game.leaving ? 1.6 : off ? 2.6 : 1) * sticky;
         k.body.velocity.x += ((dx / d) * sp - k.body.velocity.x) * Math.min(1, dt * 6);
         k.body.velocity.z += ((dz / d) * sp - k.body.velocity.z) * Math.min(1, dt * 6);
         // Up close: shove it, and now and then jump at it.
         if (!away && d < KID_R + 1.2) {
           const push = 5 + Math.random() * 6;
           k.target.body.applyImpulse(new CANNON.Vec3((dx / d) * push * dt * 9, push * dt * 2.5, (dz / d) * push * dt * 9), new CANNON.Vec3(k.body.position.x, k.target.body.position.y + 0.3, k.body.position.z));
-          if (Math.random() < dt * 1.6 && k.body.position.y < KID_R + 0.2) k.body.velocity.y = 7 + Math.random() * 4;
+          if (sticky === 1 && Math.random() < dt * 1.6 && k.body.position.y < KID_R + 0.2) k.body.velocity.y = 7 + Math.random() * 4;
         }
         k.face = Math.atan2(k.body.velocity.x, k.body.velocity.z);
       }
@@ -1032,7 +1087,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       for (const k of kids) {
         // A waddle: they bob and rock as they run.
         k.mesh.position.set(k.body.position.x, k.body.position.y - KID_R + Math.abs(Math.sin(game.t * 9 + k.phase)) * 0.4, k.body.position.z);
-        if (k.fly) { k.mesh.position.y = k.body.position.y - KID_R * 0.4; k.mesh.rotation.set((game.t - game.shoo) * k.spin, k.face, 0); }   // tumbling through the air
+        if (k.fly) { k.mesh.position.y = k.body.position.y - KID_R * 0.4; k.mesh.rotation.set((game.t - k.flyAt) * k.spin, k.face, 0); }   // tumbling through the air
         else k.mesh.rotation.set(0, k.face, Math.sin(game.t * 9 + k.phase) * 0.14);
       }
       needs = true;
@@ -1044,31 +1099,52 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       clock.hidden = true;
       for (const k of g.kids) scene.remove(k.mesh);
       scene.remove(wave); shooBtn.hidden = true;
-      // Still standing: upright, and close to where you put it.
+      // Still standing: upright, and close to where you put it. Traps don't count.
       const up = new THREE.Vector3();
-      let ok = 0;
+      let ok = 0, total = 0, favOk = false;
       for (const it of g.items) {
+        if (TRAPS.includes(it.toy.userData.kind)) continue;
         up.set(0, 1, 0).applyQuaternion(it.toy.quaternion);
         const moved = Math.hypot(it.toy.position.x - it.start.p.x, it.toy.position.z - it.start.p.z);
         const stands = it.toy.userData.kind === 'ball' ? moved < 2 : up.y > 0.8 && moved < 2 && Math.abs(it.toy.position.y - it.start.p.y) < 0.4;
-        if (stands) ok++;
+        total++;
+        if (stands) { ok++; if (it.toy === fav) favOk = true; }
       }
-      const pct = Math.round((ok / g.items.length) * 100);
+      const pct = Math.round((ok / total) * 100);
       const verdict = pct >= 90 ? 'Kid-proof!' : pct >= 70 ? 'It held. Mostly.' : pct >= 40 ? 'They made a dent.' : pct > 0 ? 'Flattened.' : 'There was a town here once.';
       const res = el.querySelector('.pg-result');
       res.hidden = false;
-      res.innerHTML = `<strong>${verdict}</strong><span>${ok} of ${g.items.length} toys still standing (${pct}%)</span><div><button data-r="back" class="primary">Put it back</button><button data-r="keep">Keep the mess</button><button data-r="again">Again!</button></div>`;
       const restore = () => { for (const it of g.items) { it.toy.position.copy(it.start.p); it.toy.quaternion.copy(it.start.q); } needs = true; };
       const done = () => { res.hidden = true; el.classList.remove('pg-playing'); save(); };
-      res.querySelector('[data-r="back"]').addEventListener('click', () => { restore(); done(); });
-      res.querySelector('[data-r="again"]').addEventListener('click', () => { restore(); done(); releaseKids(); });
-      res.querySelector('[data-r="keep"]').addEventListener('click', () => {
-        // Toys stay where they fell, but stand up again (they only turn on the spot when you build).
-        for (const it of g.items) { const e = new THREE.Euler().setFromQuaternion(it.toy.quaternion, 'YXZ'); it.toy.rotation.set(0, e.y, 0); it.toy.position.y = 0; }
-        for (const it of g.items) it.toy.position.y = restingHeight(it.toy, it.toy.position.x, it.toy.position.z);
-        needs = true;
-        done();
-      });
+      if (mode === 'herd') {
+        // Kid herd: your favourite decides how good the prize is. Then the town is put back, and a bigger herd is on its way.
+        herd.streak = favOk ? herd.streak + 1 : 0;
+        herd.best = Math.max(herd.best, herd.streak);
+        const pick = (list) => list[Math.floor(Math.random() * list.length)], offers = [];
+        while (offers.length < (favOk ? 3 : 2)) {
+          const roll = Math.random(), kind = pick(roll < (favOk ? 0.35 : 0.15) ? PRIZES.traps : roll < 0.6 ? PRIZES.good : PRIZES.common);
+          if (!offers.some((o) => o.kind === kind)) offers.push({ kind, n: PRIZES.common.includes(kind) ? (pct >= 50 ? 3 : 2) : 1 });
+        }
+        res.innerHTML = `<strong>${favOk ? 'Your favourite made it!' : 'They got your favourite.'}</strong><span>Round ${herd.round}: ${ok} of ${total} toys still standing${herd.streak > 1 ? `. ${herd.streak} rounds safe in a row` : ''}</span><em>Pick something new for your box</em><div>${offers.map((o, i) => `<button data-o="${i}" class="${i ? '' : 'primary'}">${TOYS[o.kind].label}${o.n > 1 ? ` × ${o.n}` : ''}</button>`).join('')}</div>`;
+        res.querySelectorAll('[data-o]').forEach((b) => b.addEventListener('click', () => {
+          const o = offers[+b.dataset.o];
+          herd.box[o.kind] = (herd.box[o.kind] || 0) + o.n;
+          herd.round++;
+          restore(); showBox(); showRound(); done();
+          toast(`Round ${herd.round}: ${herdKids()} kids are coming. Get ready.`);
+        }));
+      } else {
+        res.innerHTML = `<strong>${verdict}</strong><span>${ok} of ${total} toys still standing (${pct}%)</span><div><button data-r="back" class="primary">Put it back</button><button data-r="keep">Keep the mess</button><button data-r="again">Again!</button></div>`;
+        res.querySelector('[data-r="back"]').addEventListener('click', () => { restore(); done(); });
+        res.querySelector('[data-r="again"]').addEventListener('click', () => { restore(); done(); releaseKids(); });
+        res.querySelector('[data-r="keep"]').addEventListener('click', () => {
+          // Toys stay where they fell, but stand up again (they only turn on the spot when you build).
+          for (const it of g.items) { const e = new THREE.Euler().setFromQuaternion(it.toy.quaternion, 'YXZ'); it.toy.rotation.set(0, e.y, 0); it.toy.position.y = 0; }
+          for (const it of g.items) it.toy.position.y = restingHeight(it.toy, it.toy.position.x, it.toy.position.z);
+          needs = true;
+          done();
+        });
+      }
       needs = true;
     };
     step();
@@ -1109,19 +1185,63 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     if (dx || dz || t.y) { camera.position.x += dx; camera.position.z += dz; t.x += dx; t.z += dz; t.y = 0; }
     needs = true;
   });
-  let saved = null;
-  try { saved = JSON.parse(localStorage.getItem(KEY(boardId)) || 'null'); } catch {}
-  state.carpet = saved?.carpet || 'town';
-  setSize(saved?.size || 'medium');
-  el.querySelector('[data-a="carpet"]').value = state.carpet;
-  el.querySelector('[data-a="size"]').value = state.size;
-  if (saved?.toys?.length) for (const t of saved.toys) addToy(t.kind, t, { quiet: true });
-  else buildTown(dice(4));   // a first town, so the mat isn't empty (always the same one)
+  // ---------- Free play and kid herd ----------
+  // Two towns, kept apart: the one you build freely, and the one you defend round after round.
+  const herdKids = () => Math.min(12, 2 + herd.round);
+  const showRound = () => {
+    const on = mode === 'herd';
+    el.classList.toggle('pg-herd', on);
+    el.querySelector('[data-a="kids"]').hidden = on;
+    const label = el.querySelector('.pg-round');
+    label.hidden = !on;
+    if (on) label.textContent = `Round ${herd.round} · ${herdKids()} kids`;
+    for (const b of el.querySelectorAll('[data-m]')) b.classList.toggle('on', b.dataset.m === mode);
+  };
+  const load = (m, fresh = false) => {
+    stopMotion();
+    for (const t of [...toys]) scene.remove(t);
+    toys.length = 0; fav = null; select(null);
+    mode = m;
+    let saved = null;
+    if (!fresh) try { saved = JSON.parse(localStorage.getItem(KEY(boardId, m)) || 'null'); } catch {}
+    herd = m === 'herd' ? saved?.herd || { round: 1, box: { ...START_BOX }, streak: 0, best: 0 } : null;
+    state.carpet = m === 'herd' ? 'town' : saved?.carpet || 'town';
+    setSize(m === 'herd' ? 'medium' : saved?.size || 'medium');
+    el.querySelector('[data-a="carpet"]').value = state.carpet;
+    el.querySelector('[data-a="size"]').value = state.size;
+    if (saved?.toys?.length) for (const t of saved.toys) addToy(t.kind, t, { quiet: true });
+    else if (m === 'free' && !saved) buildTown(dice(4));   // a first town, so the mat isn't empty (always the same one)
+    if (m === 'herd') fav = toys[saved?.fav] || null;
+    showBox(); showRound();
+    camera.position.copy(homeView()); controls.target.set(0, 0, 0.5); controls.update();
+    needs = true;
+  };
+  for (const b of el.querySelectorAll('[data-m]')) b.addEventListener('click', () => {
+    if (b.dataset.m === mode || game) return;
+    save();
+    load(b.dataset.m);
+    save();
+    if (mode === 'herd' && herd.round === 1 && !toys.length) toast('Build with what is in the box, pick a favourite, then release the kids.');
+  });
+  const restartBtn = el.querySelector('[data-a="restart"]');
+  let restartTimer = 0;
+  const restartRest = () => { clearTimeout(restartTimer); restartBtn.textContent = 'Start over'; restartBtn.classList.remove('on'); };
+  restartBtn.addEventListener('click', () => {
+    if (!restartBtn.classList.contains('on')) { restartBtn.textContent = 'Sure?'; restartBtn.classList.add('on'); restartTimer = setTimeout(restartRest, 3000); return; }
+    restartRest(); setMore(false);
+    load('herd', true);
+    save();
+  });
+  let lastMode = 'free';
+  try { lastMode = localStorage.getItem(`playground.mode.${boardId}`) === 'herd' ? 'herd' : 'free'; } catch {}
   size();
-  camera.position.copy(homeView());
+  load(lastMode);
   const loop = (now) => {
     raf = requestAnimationFrame(loop);
     if (moving) { motionStep(now || performance.now()); needs = true; }
+    // The marker over your favourite follows it, even when it is sent flying.
+    star.visible = !!fav;
+    if (fav) { const b = boxOf(fav), y = b.max.y + 0.7 + Math.sin((now || 0) / 300) * 0.08; if (star.position.x !== fav.position.x || star.position.z !== fav.position.z || Math.abs(star.position.y - y) > 0.002) { star.position.set((b.min.x + b.max.x) / 2, y, (b.min.z + b.max.z) / 2); star.rotation.y = (now || 0) / 500; needs = true; } }
     const moved = walk ? walkStep(now || performance.now()) : controls.update();
     if (moved || needs) { needs = false; renderer.render(scene, camera); }
   };
