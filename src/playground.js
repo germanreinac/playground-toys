@@ -306,7 +306,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   el.innerHTML = `
     <div class="pg-top">
       <strong>Playground</strong>
-      <span class="pg-mode"><button data-m="free" class="on" title="Build anything, with every toy">Free play</button><button data-m="herd" title="A small box of toys, a favourite to protect, and a bigger herd every round">Kid herd</button></span>
+      <span class="pg-mode"><button data-m="free" class="on" title="Build anything, with every toy">Free play</button><button data-m="herd" title="Annoying kids want your toys. A small box, a favourite to protect, and a bigger herd every round">Kid herd</button></span>
       <span class="pg-hint">Pick a toy. Drag toys to move them (they stack). Drag the floor to look around.</span>
       <span class="pg-space"></span>
       <button data-a="lock" title="Lock the toys in place, so you can look around freely (L)">Lock toys</button>
@@ -336,6 +336,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     </div>
     <div class="pg-box"></div>
     <div class="pg-clock" hidden></div>
+    <div class="pg-kick" hidden></div>
     <button class="pg-shoo" title="Blast the kids off the carpet. The toys feel nothing. Once per test. (Space)" hidden>Boom!</button>
     <div class="pg-walk" hidden>
       <i class="pg-stick" data-stick="L"><b></b></i><i class="pg-stick" data-stick="R"><b></b></i>
@@ -586,6 +587,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   const letGo = () => { if (!drag) return; drag.toy.position.copy(drag.from); drag = null; controls.enabled = true; placeRing(); needs = true; };
   cv.addEventListener('pointerdown', (e) => { if (e.pointerType === 'touch') fingers.add(e.pointerId); if (fingers.size > 1) letGo(); }, true);
   for (const t of ['pointerup', 'pointercancel']) cv.addEventListener(t, (e) => fingers.delete(e.pointerId), true);
+  cv.addEventListener('pointerdown', (e) => { if (game && e.button === 0 && kick(e)) e.stopImmediatePropagation(); }, true);
   cv.addEventListener('pointerdown', (e) => {
     if (e.button !== 0 || game || locked || fingers.size > 1) return;
     const toy = toyAt(e);
@@ -898,6 +900,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     return true;
   };
   walkPad.addEventListener('pointerdown', (e) => {
+    if (game && kick(e)) return;   // a tap on a kid is a kick, also from down in the street
     walkPad.setPointerCapture(e.pointerId);
     if (e.pointerType !== 'touch') { walk.look = { id: e.pointerId, x: e.clientX, y: e.clientY }; return; }
     const st = sticks[e.clientX < walkPad.clientWidth / 2 ? 'L' : 'R'];
@@ -932,7 +935,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   walkBar.querySelector('[data-w="release"]').addEventListener('click', () => releaseKids());
 
   // ---------- Kid test ----------
-  let game = null, shoo = () => {};
+  let game = null, shoo = () => {}, kick = () => false;
   const KID_COLOURS = ['#ff3fa9', '#3d7bff', '#ffd23f', '#ff5a4f', '#3ecf8e', '#ff9a3d'];
   const makeKid = (i) => {
     const g = new THREE.Group();
@@ -986,6 +989,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       return { toy, body, centre, start };
     });
     const lures = items.filter((it) => it.toy.userData.kind === 'jar');
+    const LENGTH = mode === 'herd' ? 14 : 11;   // seconds of mayhem
     // The kids come in from every side of the carpet.
     const count = mode === 'herd' ? herdKids() : Math.round((Number(el.querySelector('[data-a="kids"]').value) || 6) * Math.sqrt((MAT_W * MAT_D) / 600));   // more kids for a bigger carpet
     const kids = [];
@@ -995,13 +999,14 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       scene.add(mesh);
       const body = new CANNON.Body({ mass: 6, material: kidMat, shape: new CANNON.Sphere(KID_R), linearDamping: 0.3, fixedRotation: true });
       body.position.set(Math.cos(a) * (MAT_W / 2 + 4 + Math.random() * 4), KID_R, Math.sin(a) * (MAT_D / 2 + 4 + Math.random() * 4));
-      world.addBody(body);
-      kids.push({ mesh, body, target: null, until: 0, speed: 4.2 + Math.random() * 2.4, phase: Math.random() * 6, face: 0 });
+      // In kid herd they don't all come at once: you have to keep watching.
+      const start = mode === 'herd' ? (i / count) * LENGTH * 0.55 : 0;
+      mesh.visible = false;
+      kids.push({ mesh, body, start, in: false, target: null, until: 0, speed: 4.2 + Math.random() * 2.4, phase: Math.random() * 6, face: 0 });
     }
-    const LENGTH = 11;   // seconds of mayhem
     const clock = el.querySelector('.pg-clock');
     clock.hidden = false;
-    game = { world, items, kids, t: 0, last: performance.now(), leaving: false, shoo: -1 };
+    game = { world, items, kids, t: 0, last: performance.now(), leaving: false, shoo: -1, kicked: 0 };
     // Boom! Your one special move per test: a blast that only kids feel. They fly out of sight, land, and run back.
     const shooBtn = el.querySelector('.pg-shoo');
     shooBtn.hidden = false; shooBtn.disabled = false;
@@ -1010,6 +1015,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     scene.add(wave);
     shoo = () => {
       if (!game || game.leaving || game.shoo >= 0) return;
+      const kids = game.kids.filter((k) => k.in && !k.out);   // only the ones on the floor
       game.shoo = game.t;
       shooBtn.disabled = true;
       let cx = 0, cz = 0;
@@ -1022,6 +1028,27 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
         k.body.collisionFilterMask = 2; k.body.linearDamping = 0.02;
         k.fly = true; k.flyAt = game.t; k.spin = (Math.random() < 0.5 ? -1 : 1) * (5 + Math.random() * 6); k.target = null;
       }
+    };
+    // Kick! Tap a kid and it is out for the round, flying away from you. Your foot needs a moment between kicks.
+    const kickBar = el.querySelector('.pg-kick');
+    kickBar.hidden = false; kickBar.textContent = 'Tap a kid to kick it out'; kickBar.classList.remove('wait');
+    let lastKick = -9;
+    kick = (e) => {
+      if (!game || game.leaving) return false;
+      aim(e);
+      const live = game.kids.filter((k) => k.in && !k.out);
+      let o = ray.intersectObjects(live.map((k) => k.mesh), true)[0]?.object;
+      while (o && !live.some((k) => k.mesh === o)) o = o.parent;
+      if (!o) return false;
+      if (game.t - lastKick < 0.7) return true;   // foot not ready yet
+      const k = live.find((q) => q.mesh === o);
+      const dx = k.body.position.x - camera.position.x, dz = k.body.position.z - camera.position.z, d = Math.hypot(dx, dz) || 1, out = 20 + Math.random() * 6;
+      k.body.velocity.set((dx / d) * out, 17 + Math.random() * 6, (dz / d) * out);
+      k.body.collisionFilterMask = 2; k.body.linearDamping = 0.02;
+      Object.assign(k, { fly: true, out: true, flyAt: game.t, spin: (Math.random() < 0.5 ? -1 : 1) * (6 + Math.random() * 6), target: null });
+      lastKick = game.t; game.kicked++;
+      kickBar.textContent = `${game.kicked} kicked out`;
+      return true;
     };
     const tmpQ = new THREE.Quaternion(), tmpV = new THREE.Vector3();
     const step = () => {
@@ -1037,8 +1064,15 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       const w = game.shoo >= 0 ? (game.t - game.shoo) / 0.9 : 2;
       wave.visible = w < 1;
       if (w < 1) { wave.scale.setScalar(1 + w * 40); wave.material.opacity = 0.9 * (1 - w); }
-      clock.textContent = left > 0 ? `${Math.ceil(left)}` : 'Home time!';
+      kickBar.classList.toggle('wait', game.t - lastKick < 0.7);
+      // Everyone kicked out? Then it is over early.
+      const allOut = kids.every((k) => k.out);
+      if (allOut && !game.leaving && game.t < LENGTH - 0.01) game.t = Math.max(game.t, LENGTH + 0.6);
+      clock.textContent = allOut ? 'All out!' : left > 0 ? `${Math.ceil(left)}` : 'Home time!';
       for (const k of kids) {
+        if (!k.in) { if (game.t < k.start || game.leaving) continue; k.in = true; k.mesh.visible = true; world.addBody(k.body); }
+        if (k.gone) continue;
+        if (k.out) { if (game.t - k.flyAt > 1.7) { k.gone = true; k.mesh.visible = false; world.removeBody(k.body); } continue; }   // kicked: gone for this round
         if (k.fly) {
           // Blown into the air: nothing to steer until they land.
           if (game.t - k.flyAt > 0.4 && k.body.position.y < KID_R + 0.1) { k.fly = false; k.body.collisionFilterMask = -1; k.body.linearDamping = 0.3; }
@@ -1085,6 +1119,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
         it.toy.position.set(it.body.position.x - tmpV.x, it.body.position.y - tmpV.y, it.body.position.z - tmpV.z);
       }
       for (const k of kids) {
+        if (!k.in || k.gone) continue;
         // A waddle: they bob and rock as they run.
         k.mesh.position.set(k.body.position.x, k.body.position.y - KID_R + Math.abs(Math.sin(game.t * 9 + k.phase)) * 0.4, k.body.position.z);
         if (k.fly) { k.mesh.position.y = k.body.position.y - KID_R * 0.4; k.mesh.rotation.set((game.t - k.flyAt) * k.spin, k.face, 0); }   // tumbling through the air
@@ -1098,7 +1133,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       game = null;
       clock.hidden = true;
       for (const k of g.kids) scene.remove(k.mesh);
-      scene.remove(wave); shooBtn.hidden = true;
+      scene.remove(wave); shooBtn.hidden = true; kickBar.hidden = true;
       // Still standing: upright, and close to where you put it. Traps don't count.
       const up = new THREE.Vector3();
       let ok = 0, total = 0, favOk = false;
@@ -1125,7 +1160,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
           const roll = Math.random(), kind = pick(roll < (favOk ? 0.35 : 0.15) ? PRIZES.traps : roll < 0.6 ? PRIZES.good : PRIZES.common);
           if (!offers.some((o) => o.kind === kind)) offers.push({ kind, n: PRIZES.common.includes(kind) ? (pct >= 50 ? 3 : 2) : 1 });
         }
-        res.innerHTML = `<strong>${favOk ? 'Your favourite made it!' : 'They got your favourite.'}</strong><span>Round ${herd.round}: ${ok} of ${total} toys still standing${herd.streak > 1 ? `. ${herd.streak} rounds safe in a row` : ''}</span><em>Pick something new for your box</em><div>${offers.map((o, i) => `<button data-o="${i}" class="${i ? '' : 'primary'}">${TOYS[o.kind].label}${o.n > 1 ? ` × ${o.n}` : ''}</button>`).join('')}</div>`;
+        res.innerHTML = `<strong>${favOk ? 'Your favourite made it!' : 'They got your favourite.'}</strong><span>Round ${herd.round}: ${ok} of ${total} toys still standing${g.kicked ? `, ${g.kicked} kids kicked out` : ''}${herd.streak > 1 ? `. ${herd.streak} rounds safe in a row` : ''}</span><em>Pick something new for your box</em><div>${offers.map((o, i) => `<button data-o="${i}" class="${i ? '' : 'primary'}">${TOYS[o.kind].label}${o.n > 1 ? ` × ${o.n}` : ''}</button>`).join('')}</div>`;
         res.querySelectorAll('[data-o]').forEach((b) => b.addEventListener('click', () => {
           const o = offers[+b.dataset.o];
           herd.box[o.kind] = (herd.box[o.kind] || 0) + o.n;
@@ -1134,7 +1169,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
           toast(`Round ${herd.round}: ${herdKids()} kids are coming. Get ready.`);
         }));
       } else {
-        res.innerHTML = `<strong>${verdict}</strong><span>${ok} of ${total} toys still standing (${pct}%)</span><div><button data-r="back" class="primary">Put it back</button><button data-r="keep">Keep the mess</button><button data-r="again">Again!</button></div>`;
+        res.innerHTML = `<strong>${verdict}</strong><span>${ok} of ${total} toys still standing (${pct}%)${g.kicked ? `, ${g.kicked} kids kicked out` : ''}</span><div><button data-r="back" class="primary">Put it back</button><button data-r="keep">Keep the mess</button><button data-r="again">Again!</button></div>`;
         res.querySelector('[data-r="back"]').addEventListener('click', () => { restore(); done(); });
         res.querySelector('[data-r="again"]').addEventListener('click', () => { restore(); done(); releaseKids(); });
         res.querySelector('[data-r="keep"]').addEventListener('click', () => {
@@ -1187,7 +1222,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   });
   // ---------- Free play and kid herd ----------
   // Two towns, kept apart: the one you build freely, and the one you defend round after round.
-  const herdKids = () => Math.min(12, 2 + herd.round);
+  const herdKids = () => Math.min(18, 2 + 2 * herd.round);
   const showRound = () => {
     const on = mode === 'herd';
     el.classList.toggle('pg-herd', on);
@@ -1221,7 +1256,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     save();
     load(b.dataset.m);
     save();
-    if (mode === 'herd' && herd.round === 1 && !toys.length) toast('Build with what is in the box, pick a favourite, then release the kids.');
+    if (mode === 'herd' && herd.round === 1 && !toys.length) toast('Annoying kids want your toys. Build, pick a favourite, then kick them out.');
   });
   const restartBtn = el.querySelector('[data-a="restart"]');
   let restartTimer = 0;

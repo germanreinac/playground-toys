@@ -147,3 +147,11 @@ button { font: inherit; color: inherit; }
   #playground .pg-tabs button { flex: none; }
   .pg-result strong { font-size: 26px; }
 }
+
+/* Kick: the hint and the count under the clock. Dimmed while your foot gets ready again. */
+.pg-kick { position: absolute; left: 50%; top: 152px; transform: translateX(-50%); z-index: 2; padding: 4px 14px; border-radius: var(--blob-s); background: var(--overlay); border: 1px solid var(--panel-border); color: var(--text-strong); font: 600 13px var(--font-second); white-space: nowrap; pointer-events: none; transition: opacity 0.12s; }
+.pg-kick[hidden] { display: none; }
+.pg-kick.wait { opacity: 0.35; }
+@media (max-width: 700px) { .pg-kick { top: calc(84px + env(safe-area-inset-top, 0px)); } }
+#playground.pg-walking .pg-kick { top: calc(56px + env(safe-area-inset-top, 0px)); }
+#playground.pg-playing canvas { cursor: crosshair; }
