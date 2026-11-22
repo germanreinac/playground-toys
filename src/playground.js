@@ -319,7 +319,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
   el.innerHTML = `
     <div class="pg-top">
       <strong>Playground</strong>
-      <span class="pg-mode"><button data-m="free" class="on" title="Build anything, with every toy">Free<i> play</i></button><button data-m="herd" title="Annoying kids want your toys. A small box, a favourite to protect, and a bigger herd every round"><i>Kid </i>Herd</button></span>
+      <span class="pg-mode"><button data-m="herd" title="The game: grow a toy city, and defend it when the kids come">City</button><button data-m="free" title="No rules: build anything, with every toy">Free<i> play</i></button></span>
       <span class="pg-hint">Pick a toy. Drag toys to move them (they stack). Drag the floor to look around.</span>
       <span class="pg-space"></span>
       <button data-a="lock" title="Lock the toys in place, so you can look around freely (L)">Lock toys</button>
@@ -339,7 +339,7 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
       <button data-a="random" title="Build a whole random town">Random town</button>
       <button data-a="clear">Clear</button>
       <button data-a="heart" title="Buy back a lost heart">Buy a heart · 15c</button>
-      <button data-a="restart" title="Begin kid herd mode again from round 1">Start over</button>
+      <button data-a="restart" title="Begin the city again from round 1">Start over</button>
       <button data-a="shot">${addImage ? 'Put on board' : 'Save picture'}</button>
     </div>
     <div class="pg-sel" hidden>
@@ -1445,9 +1445,10 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     save();
     load(b.dataset.m);
     save();
-    if (mode === 'herd' && herd.round === 1 && !toys.length) toast('Annoying kids want your toys. Build a town, pick a favourite, then fight them off. Battles win coins, coins grow the town.');
+    if (mode === 'herd' && herd.round === 1 && !toys.length) welcome();
   });
   el.querySelector('[data-a="heart"]').addEventListener('click', () => { if (mode !== 'herd' || herd.hearts >= 3 || herd.coins < 15) return; herd.coins -= 15; herd.hearts++; showRound(); showBox(); save(); });
+  const welcome = () => toast('Build your toy city. When the kids come, fight them off: battles win coins, and coins grow the city.');
   const restartBtn = el.querySelector('[data-a="restart"]');
   let restartTimer = 0;
   const restartRest = () => { clearTimeout(restartTimer); restartBtn.textContent = 'Start over'; restartBtn.classList.remove('on'); };
@@ -1459,10 +1460,11 @@ export function openPlayground({ boardId, addImage, toast, standalone = false })
     herd.best = best;
     save();
   });
-  let lastMode = 'free';
-  try { lastMode = localStorage.getItem(`playground.mode.${boardId}`) === 'herd' ? 'herd' : 'free'; } catch {}
+  let lastMode = 'herd';
+  try { lastMode = localStorage.getItem(`playground.mode.${boardId}`) === 'free' ? 'free' : 'herd'; } catch {}
   size();
   load(lastMode);
+  if (mode === 'herd' && herd.round === 1 && !toys.length) welcome();
   const loop = (now) => {
     raf = requestAnimationFrame(loop);
     if (moving) { motionStep(now || performance.now()); needs = true; }
